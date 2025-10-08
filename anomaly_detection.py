@@ -250,3 +250,86 @@ class TimeSeriesAnomalyDetector:
         )
 
         return fig
+
+    def plot_multiple_series(self, series_names: List[str], target_col: str,
+                           methods_to_plot: List[str]) -> go.Figure:
+        """
+        Crea una visualización interactiva combinada de múltiples series de tiempo con anomalías detectadas.
+
+        Args:
+            series_names: Lista de nombres de las series a visualizar
+            target_col: Nombre de la columna objetivo
+            methods_to_plot: Lista de métodos cuyas anomalías mostrar
+
+        Returns:
+            Figura de Plotly con la visualización combinada
+        """
+        # Crear figura base
+        fig = go.Figure()
+
+        # Colores para diferentes series
+        series_colors = ['blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive']
+        anomaly_colors = ['red', 'darkgreen', 'darkorange', 'darkviolet', 'darkred', 'hotpink', 'dimgray', 'darkolivegreen']
+
+        for i, series_name in enumerate(series_names):
+            if series_name not in self.dataframes:
+                print(f"Advertencia: Serie '{series_name}' no encontrada")
+                continue
+
+            df = self.dataframes[series_name]
+            results = self.results.get(series_name, pd.DataFrame())
+
+            # Color para esta serie
+            color_idx = i % len(series_colors)
+            series_color = series_colors[color_idx]
+            anomaly_color = anomaly_colors[color_idx]
+
+            # Agregar la serie de tiempo principal
+            fig.add_trace(go.Scatter(
+                x=df.index,
+                y=df[target_col],
+                mode='lines',
+                name=f'{series_name} - {target_col}',
+                line=dict(color=series_color, width=2),
+                legendgroup=series_name
+            ))
+
+            # Agregar anomalías detectadas por cada método
+            for method in methods_to_plot:
+                anomaly_col = f'is_anomaly_{method}'
+
+                if anomaly_col not in results.columns:
+                    print(f"Advertencia: Columna '{anomaly_col}' no encontrada en resultados de {series_name}")
+                    continue
+
+                # Filtrar solo anomalías (-1)
+                anomalies = results[results[anomaly_col] == -1]
+
+                if len(anomalies) > 0:
+                    # Agregar puntos de anomalías
+                    fig.add_trace(go.Scatter(
+                        x=anomalies.index,
+                        y=df.loc[anomalies.index, target_col],
+                        mode='markers',
+                        name=f'Anomalías {series_name} - {method}',
+                        marker=dict(
+                            color=anomaly_color,
+                            size=8,
+                            symbol='x'
+                        ),
+                        legendgroup=series_name,
+                        showlegend=True
+                    ))
+
+        # Configurar layout
+        series_list = ", ".join(series_names)
+        fig.update_layout(
+            title=f'Análisis de Anomalías - Series: {series_list}',
+            xaxis_title='Tiempo',
+            yaxis_title=target_col,
+            hovermode='x unified',
+            showlegend=True,
+            height=600
+        )
+
+        return fig

@@ -14,6 +14,7 @@ Este proyecto implementa una clase flexible y extensible para la detección de a
 
 ```
 DataExplorationFieldLabel/
+├── main_dash.py              # Aplicación web Dash interactiva
 ├── anomaly_detection.py      # Clase principal TimeSeriesAnomalyDetector
 ├── data_explorer.ipynb       # Notebook con ejemplos de uso
 ├── csv/
@@ -31,7 +32,7 @@ DataExplorationFieldLabel/
    ```
    O usando conda:
    ```bash
-   conda install pandas numpy scikit-learn plotly
+   conda install pandas numpy scikit-learn plotly dash dash-bootstrap-components
    ```
 
 ## Uso Básico
@@ -58,6 +59,28 @@ detector.apply_isolation_forest('MiSerie', 'Value')
 fig = detector.plot_anomalies('MiSerie', 'Value', ['IF'])
 fig.show()
 ```
+
+### Aplicación Web Dash
+
+Para ejecutar la aplicación web interactiva:
+
+```bash
+python main_dash.py
+```
+
+La aplicación estará disponible en `http://127.0.0.1:8050/`
+
+**Características de la App Web:**
+- Panel lateral para seleccionar series de tiempo y métodos de detección
+- Visualización interactiva con Plotly
+- Soporte para múltiples series simultáneamente
+- Indicador de carga durante el procesamiento
+- Interfaz elegante con Bootstrap
+
+**Datos incluidos:**
+- SerieA: Patrón sinusoidal con anomalías
+- SerieB: Tendencia lineal con estacionalidad
+- SerieC: Patrón con cambios de nivel
 
 ## Clase TimeSeriesAnomalyDetector
 
@@ -108,6 +131,8 @@ Los datos en `csv/time-series.csv` contienen una serie de tiempo real con timest
 - numpy
 - scikit-learn
 - plotly
+- dash
+- dash-bootstrap-components
 
 <!-- ## Licencia
 
