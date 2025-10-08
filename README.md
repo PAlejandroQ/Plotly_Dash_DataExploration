@@ -1,169 +1,169 @@
 # Time Series Anomaly Detection
 
-Este proyecto implementa una clase flexible y extensible para la detección de anomalías en series de tiempo, inicialmente utilizando Isolation Forest, pero diseñada para admitir fácilmente otros métodos de detección.
+This project implements a flexible and extensible class for time series anomaly detection, initially using Isolation Forest, but designed to easily support other detection methods.
 
-## Características
+## Features
 
-- **Detección de Anomalías**: Implementa Isolation Forest para identificar valores atípicos en series de tiempo
-- **Visualización Interactiva**: Utiliza Plotly para crear gráficos interactivos con anomalías destacadas
-- **Carga Masiva Eficiente**: Usa Polars para procesar archivos CSV grandes (GB) con múltiples series
-- **Dashboard Dinámico**: Paneles de visualización duplicables y eliminables en tiempo real
-- **Extensible**: Arquitectura modular que permite agregar nuevos métodos de detección fácilmente
-- **Limpieza Automática de Datos**: Maneja automáticamente formatos numéricos problemáticos
-- **Múltiples Series**: Soporta análisis de múltiples series de tiempo simultáneamente
+- **Anomaly Detection**: Implements Isolation Forest to identify outliers in time series
+- **Interactive Visualization**: Uses Plotly to create interactive charts with highlighted anomalies
+- **Efficient Bulk Loading**: Uses Polars to process large (GB) CSV files with multiple series
+- **Dynamic Dashboard**: Visualization panels can be duplicated and deleted in real time
+- **Extensible**: Modular architecture allows easy addition of new detection methods
+- **Automatic Data Cleaning**: Automatically handles problematic numeric formats
+- **Multiple Series**: Supports analysis of multiple time series simultaneously
 
-## Estructura del Proyecto
+## Project Structure
 
 ```
 DataExplorationFieldLabel/
-├── main_dash.py              # Aplicación web Dash interactiva con paneles dinámicos
-├── anomaly_detection.py      # Clase principal TimeSeriesAnomalyDetector
-├── data_explorer.ipynb       # Notebook con ejemplos de uso
+├── main_dash.py              # Dash web app with dynamic panels
+├── anomaly_detection.py      # Main TimeSeriesAnomalyDetector class
+├── data_explorer.ipynb       # Notebook with usage examples
 ├── csv/
-│   └── time-series.csv       # Datos de ejemplo originales
+│   └── time-series.csv       # Original example data
 ├── csv_to_dash/
-│   └── multi_series_test.csv # Datos de prueba con múltiples series (WebId, Id, Name)
-├── requirements.txt          # Dependencias del proyecto
-└── README.md                 # Este archivo
+│   └── multi_series_test.csv # Test data with multiple series (WebId, Id, Name)
+├── requirements.txt          # Project dependencies
+└── README.md                 # This file
 ```
 
-## Instalación
+## Installation
 
-1. **Clona o descarga el repositorio**
-2. **Instala las dependencias**:
+1. **Clone or download the repository**
+2. **Install dependencies**:
    ```bash
    pip install -r requirements.txt
    ```
-   O usando conda:
+   Or using conda:
    ```bash
    conda install pandas numpy scikit-learn plotly dash dash-bootstrap-components
    ```
 
-## Uso Básico
+## Basic Usage
 
 ```python
 from anomaly_detection import TimeSeriesAnomalyDetector
 import pandas as pd
 
-# Cargar datos
+# Load data
 df = pd.read_csv('csv/time-series.csv')
 df['Timestamp'] = pd.to_datetime(df['Timestamp'])
 df.set_index('Timestamp', inplace=True)
 
-# Inicializar detector
+# Initialize detector
 detector = TimeSeriesAnomalyDetector()
 
-# Agregar serie de tiempo
-detector.add_series('MiSerie', df)
+# Add time series
+detector.add_series('MySeries', df)
 
-# Aplicar detección de anomalías
-detector.apply_isolation_forest('MiSerie', 'Value')
+# Apply anomaly detection
+detector.apply_isolation_forest('MySeries', 'Value')
 
-# Visualizar resultados
-fig = detector.plot_anomalies('MiSerie', 'Value', ['IF'])
+# Visualize results
+fig = detector.plot_anomalies('MySeries', 'Value', ['IF'])
 fig.show()
 ```
 
-## Carga Masiva de Datos con Polars
+## Bulk Data Loading with Polars
 
-Para archivos CSV grandes (GB), la clase incluye el método `load_series_from_csv()` que utiliza Polars para una carga eficiente:
+For large CSV files (GB), the class includes the `load_series_from_csv()` method using Polars for efficient loading:
 
 ```python
 from anomaly_detection import TimeSeriesAnomalyDetector
 
 detector = TimeSeriesAnomalyDetector()
 
-# Cargar múltiples series agrupadas por WebId, Id, Name
+# Load multiple series grouped by WebId, Id, Name
 options = detector.load_series_from_csv('csv_to_dash/multi_series_test.csv')
 
-print(f"Cargadas {len(options)} series:")
+print(f"Loaded {len(options)} series:")
 for option in options:
     print(f"  {option['label']} -> WebId: {option['value']}")
 ```
 
-**Características de carga masiva:**
-- **Polars**: Procesamiento ultrarrápido de archivos grandes
-- **Agrupación automática**: Series agrupadas por WebId, Id, Name
-- **Conversión automática**: Timestamps y tipos de datos
-- **Opciones para Dash**: Retorna formato listo para selectores
+**Bulk loading features:**
+- **Polars**: Ultra-fast processing of large files
+- **Automatic grouping**: Series grouped by WebId, Id, Name
+- **Automatic conversion**: Timestamps and data types
+- **Dash options**: Returns ready-to-use format for selectors
 
-## Aplicación Web Dash con Paneles Dinámicos
+## Dash Web App with Dynamic Panels
 
-Para ejecutar la aplicación web interactiva completa:
+To run the full interactive web app:
 
 ```bash
 python main_dash.py
 ```
 
-La aplicación estará disponible en `http://127.0.0.1:8050/`
+The app will be available at `http://127.0.0.1:8050/`
 
-### Características Avanzadas del Dashboard
+### Advanced Dashboard Features
 
-**Paneles Dinámicos:**
-- ➕ **Botón "Duplicar Panel"**: Crea nuevos paneles de visualización independientes
-- ❌ **Botón "×" en cada panel**: Elimina paneles específicos
-- **dcc.Store**: Mantiene el estado de todos los paneles activos
-- **Callbacks MATCH/ALL**: Actualización independiente de cada panel
+**Dynamic Panels:**
+- ➕ **"New Panel" button**: Create new independent visualization panels
+- ❌ **"×" button on each panel**: Delete specific panels
+- **dcc.Store**: Maintains the state of all active panels
+- **MATCH/ALL Callbacks**: Independent update of each panel
 
-**Visualización Interactiva:**
-- Panel lateral para seleccionar series de tiempo y métodos de detección
-- Visualización interactiva con Plotly en cada panel
-- Soporte para múltiples series simultáneamente por panel
-- Indicador de carga durante el procesamiento
-- Interfaz elegante con Bootstrap
+**Interactive Visualization:**
+- Sidebar to select time series and detection methods
+- Interactive Plotly visualization in each panel
+- Support for multiple series per panel
+- Loading indicator during processing
+- Elegant Bootstrap interface
 
-**Datos de Demostración:**
-- **TEMP001_Temperature_Sensor_A**: Patrón sinusoidal con anomalías
-- **TEMP002_Temperature_Sensor_B**: Tendencia lineal con estacionalidad
-- **PRESS001_Pressure_Sensor_A**: Patrón con cambios de nivel
-- **PRESS002_Pressure_Sensor_B**: Variabilidad moderada
-- **FLOW001_Flow_Rate_Sensor**: Tendencia con variabilidad alta
+**Demo Data:**
+- **TEMP001_Temperature_Sensor_A**: Sinusoidal pattern with anomalies
+- **TEMP002_Temperature_Sensor_B**: Linear trend with seasonality
+- **PRESS001_Pressure_Sensor_A**: Level shifts
+- **PRESS002_Pressure_Sensor_B**: Moderate variability
+- **FLOW001_Flow_Rate_Sensor**: Trend with high variability
 
-## Clase TimeSeriesAnomalyDetector
+## TimeSeriesAnomalyDetector Class
 
-### Métodos Principales
+### Main Methods
 
-- `__init__(series_data=None)`: Inicializa el detector
-- `add_series(name, df)`: Agrega una nueva serie de tiempo
-- `load_series_from_csv(file_path, target_col='Value')`: Carga masiva de series desde CSV usando Polars
-- `apply_isolation_forest(series_name, target_col, n_estimators=100, contamination=0.01)`: Aplica Isolation Forest
-- `apply_method(series_name, method_name, **kwargs)`: Placeholder para métodos futuros
-- `plot_anomalies(series_name, target_col, methods_to_plot)`: Crea visualización interactiva
-- `plot_multiple_series(series_names, target_col, methods_to_plot)`: Visualización combinada de múltiples series
+- `__init__(series_data=None)`: Initializes the detector
+- `add_series(name, df)`: Adds a new time series
+- `load_series_from_csv(file_path, target_col='Value')`: Bulk load series from CSV using Polars
+- `apply_isolation_forest(series_name, target_col, n_estimators=100, contamination=0.01)`: Apply Isolation Forest
+- `apply_method(series_name, method_name, **kwargs)`: Placeholder for future methods
+- `plot_anomalies(series_name, target_col, methods_to_plot)`: Create interactive visualization
+- `plot_multiple_series(series_names, target_col, methods_to_plot)`: Combined visualization of multiple series
 
-### Características Técnicas
+### Technical Features
 
-- **Feature Engineering**: Crea automáticamente lags (t-1, t-2, t-3) para mejorar la detección
-- **Limpieza de Datos**: Maneja automáticamente valores con separadores de miles
-- **Validación**: Verifica la existencia de series y columnas antes del procesamiento
-- **Flexibilidad**: Soporta diferentes parámetros para algoritmos de detección
+- **Feature Engineering**: Automatically creates lags (t-1, t-2, t-3) to improve detection
+- **Data Cleaning**: Automatically handles values with thousands separators
+- **Validation**: Checks for existence of series and columns before processing
+- **Flexibility**: Supports different parameters for detection algorithms
 
-## Ejemplos en el Notebook
+## Notebook Examples
 
-El archivo `data_explorer.ipynb` contiene ejemplos completos que demuestran:
+The `data_explorer.ipynb` file contains complete examples demonstrating:
 
-1. Carga y exploración de datos
-2. Inicialización del detector
-3. Aplicación de métodos de detección
-4. Visualización de resultados
-5. Trabajo con múltiples series
+1. Data loading and exploration
+2. Detector initialization
+3. Application of detection methods
+4. Visualization of results
+5. Working with multiple series
 
-## Extensión del Sistema
+## System Extension
 
-Para agregar nuevos métodos de detección, implementa nuevos métodos siguiendo el patrón de `apply_isolation_forest`:
+To add new detection methods, implement new methods following the `apply_isolation_forest` pattern:
 
 ```python
 def apply_one_class_svm(self, series_name: str, target_col: str, **kwargs) -> None:
-    # Implementación del método
+    # Method implementation
     # ...
-    # Guardar resultados en self.results[series_name]
+    # Save results in self.results[series_name]
 ```
 
-## Datos de Ejemplo
+## Example Data
 
-Los datos en `csv/time-series.csv` contienen una serie de tiempo real con timestamps y valores numéricos. Algunos valores pueden tener formatos especiales que son limpiados automáticamente por la clase.
+The data in `csv/time-series.csv` contains a real time series with timestamps and numeric values. Some values may have special formats that are automatically cleaned by the class.
 
-## Requisitos
+## Requirements
 
 - Python 3.7+
 - pandas
@@ -174,6 +174,6 @@ Los datos en `csv/time-series.csv` contienen una serie de tiempo real con timest
 - dash
 - dash-bootstrap-components
 
-<!-- ## Licencia
+<!-- ## License
 
-Este proyecto es de código abierto y puede ser utilizado libremente para fines educativos y comerciales. -->
+This project is open source and may be freely used for educational and commercial purposes. -->

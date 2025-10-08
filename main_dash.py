@@ -7,78 +7,78 @@ from datetime import datetime, timedelta
 from anomaly_detection import TimeSeriesAnomalyDetector
 import uuid
 
-# Configuración de la aplicación Dash
+# Application configuration
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "FILE LABEL"
 
 def initialize_detector_with_csv():
     """
-    Inicializa el detector cargando datos desde CSV usando Polars.
+    Initializes the detector by loading data from CSV using Polars.
     """
     detector = TimeSeriesAnomalyDetector()
 
-    # Cargar datos desde CSV con múltiples series
+    # Load data from CSV with multiple series
     csv_path = 'csv_to_dash/multi_series_test.csv'
     try:
         series_options = detector.load_series_from_csv(csv_path, target_col='Value')
-        print(f"Cargadas {len(series_options)} series desde CSV")
+        print(f"Loaded {len(series_options)} series from CSV")
         for option in series_options:
             print(f"  - {option['label']} (WebId: {option['value']})")
     except Exception as e:
-        print(f"Error al cargar CSV: {e}")
-        print("Generando datos sintéticos de respaldo...")
-        # Fallback a datos sintéticos si falla la carga
+        print(f"Error loading CSV: {e}")
+        print("Generating fallback data...")
+        # Fallback to synthetic data if CSV loading fails
         series_options = generate_fallback_options(detector)
 
-    # Aplicar Isolation Forest a todas las series cargadas
+    # Apply Isolation Forest to all loaded series
     for series_name in detector.dataframes.keys():
         try:
             detector.apply_isolation_forest(
                 series_name=series_name,
                 target_col='Value',
                 n_estimators=100,
-                contamination=0.01  # 1% de anomalías esperadas
+                contamination=0.01  # 1% expected anomalies
             )
-            print(f"Aplicado Isolation Forest a {series_name}")
+            print(f"Applied Isolation Forest to {series_name}")
         except Exception as e:
-            print(f"Error al procesar {series_name}: {e}")
+            print(f"Error processing {series_name}: {e}")
 
     return detector, series_options
 
 def generate_fallback_options(detector):
     """
-    Genera opciones de respaldo si falla la carga del CSV.
+    Generates fallback options if CSV loading fails.
     """
-    # Datos sintéticos simples como respaldo
+    # Simple synthetic data as fallback
     timestamps = [datetime(2024, 1, 1) + timedelta(minutes=i) for i in range(100)]
 
-    # Serie simple
+    # Simple series
     values = 10 + np.random.normal(0, 1, 100)
     df = pd.DataFrame({'Value': values}, index=timestamps)
 
     detector.add_series('FALLBACK001', df)
 
-    return [{'label': 'Serie_Fallback', 'value': 'FALLBACK001'}]
+    return [{'label': 'Fallback_Series', 'value': 'FALLBACK001'}]
 
-# Inicializar detector y opciones globales
+# Initialize detector and global options
 detector, series_options = initialize_detector_with_csv()
 
 def create_graph_panel(panel_id):
     """
-    Crea un template para un panel de gráfico dinámico.
+    Creates a template for a dynamic graph panel.
 
     Args:
-        panel_id: ID único del panel
+        panel_id: Unique ID for the panel
 
     Returns:
-        Componente dbc.Row con el panel completo
+        A dbc.Row component with the complete panel
     """
     return dbc.Row([
-        # Encabezado del panel con botón de eliminación
+        # Panel header with delete button
         dbc.Col([
             dbc.Card([
                 dbc.CardHeader([
-                    html.H5(f"Panel de Visualización #{panel_id}", className="d-inline-block me-2"),
+                    html.H5(f"Visualization Panel #{panel_id}", className="d-inline-block me-2"),
                     dbc.Button(
                         "×",
                         id={'type': 'delete-graph-button', 'index': panel_id},
@@ -89,20 +89,20 @@ def create_graph_panel(panel_id):
                     )
                 ]),
                 dbc.CardBody([
-                    # Controles del panel
+                    # Panel controls
                     dbc.Row([
                         dbc.Col([
-                            html.H6("Series de Tiempo"),
+                            html.H6("Time Series"),
                             dcc.Checklist(
                                 id={'type': 'series-selector-checklist', 'index': panel_id},
                                 options=series_options,
-                                value=[series_options[0]['value']] if series_options else [],  # Primera serie por defecto
+                                value=[series_options[0]['value']] if series_options else [],  # Default first series
                                 labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px'},
                                 inputStyle={"margin-right": "5px"}
                             )
                         ], width=6),
                         dbc.Col([
-                            html.H6("Métodos de Detección"),
+                            html.H6("Detection Methods"),
                             dcc.Checklist(
                                 id={'type': 'methods-selector-checklist', 'index': panel_id},
                                 options=[
@@ -117,7 +117,7 @@ def create_graph_panel(panel_id):
 
                     html.Hr(),
 
-                    # Área del gráfico
+                    # Graph area
                     dcc.Loading(
                         id={'type': 'loading-plot', 'index': panel_id},
                         type="default",
@@ -134,7 +134,7 @@ def create_graph_panel(panel_id):
         ], width=12)
     ])
 
-# Layout inicial con un panel por defecto
+# Initial layout with one default panel
 initial_panel_id = str(uuid.uuid4())[:8]
 
 app.layout = dbc.Container([
@@ -151,21 +151,21 @@ app.layout = dbc.Container([
         'methods': ['IF']
     }]),
 
-    # Contenedor de gráficos dinámicos (sin restricciones de altura)
+    # Container for dynamic graphs (no height restrictions)
     html.Div(
         id='graph-container',
         children=[create_graph_panel(initial_panel_id)],
         style={"width": "100%"}
     ),
 
-    # Botón para duplicar paneles (fuera de cualquier Row/Col que pueda colapsar)
+    # Button to duplicate panels (outside any Row/Col that might collapse)
     html.Div(
         dbc.Button(
             "➕ New Panel",
             id='add-graph-button',
             color="success",
             className="w-100",
-            style={"marginTop": "180px"} # Ajustado para que el botón esté más abajo
+            style={"marginTop": "180px"} # Adjusted to position the button lower
         ),
         style={"marginBottom": "40px"}
     )
@@ -181,7 +181,7 @@ app.layout = dbc.Container([
 )
 def manage_graph_panels(add_clicks, delete_clicks, current_panels):
     """
-    Callback para manejar la creación y eliminación de paneles.
+    Callback to manage the creation and deletion of panels.
     """
     ctx = dash.callback_context
     if not ctx.triggered:
@@ -189,9 +189,9 @@ def manage_graph_panels(add_clicks, delete_clicks, current_panels):
 
     trigger_id = ctx.triggered[0]['prop_id']
 
-    # Determinar qué acción se realizó
+    # Determine which action was performed
     if 'add-graph-button' in trigger_id:
-        # Agregar nuevo panel
+        # Add new panel
         new_panel_id = str(uuid.uuid4())[:8]
         current_panels.append({
             'id': new_panel_id,
@@ -199,16 +199,16 @@ def manage_graph_panels(add_clicks, delete_clicks, current_panels):
             'methods': ['IF']
         })
     else:
-        # Eliminar panel específico
-        # Encontrar cuál botón de eliminación fue presionado
+        # Delete specific panel
+        # Find which delete button was clicked
         for i, click_count in enumerate(delete_clicks):
             if click_count and click_count > 0:
-                # Este es el panel a eliminar
+                # This is the panel to delete
                 if i < len(current_panels):
                     current_panels.pop(i)
                 break
 
-    # Asegurar que al menos haya un panel
+    # Ensure at least one panel exists
     if not current_panels:
         new_panel_id = str(uuid.uuid4())[:8]
         current_panels = [{
@@ -217,7 +217,7 @@ def manage_graph_panels(add_clicks, delete_clicks, current_panels):
             'methods': ['IF']
         }]
 
-    # Crear componentes para todos los paneles
+    # Create components for all panels
     panel_components = [create_graph_panel(panel['id']) for panel in current_panels]
 
     return panel_components, current_panels
@@ -231,24 +231,24 @@ def manage_graph_panels(add_clicks, delete_clicks, current_panels):
 )
 def update_individual_graph(selected_series, selected_methods, graph_id):
     """
-    Callback para actualizar gráficos individuales usando patrón MATCH.
+    Callback to update individual graphs using MATCH pattern.
     """
     panel_id = graph_id['index']
 
     if not selected_series:
-        # Si no hay series seleccionadas, mostrar gráfico vacío
+        # If no series are selected, show an empty graph
         import plotly.graph_objects as go
         fig = go.Figure()
         fig.update_layout(
-            title="Selecciona al menos una serie de tiempo",
-            xaxis_title="Tiempo",
-            yaxis_title="Valor",
+            title="Select at least one time series",
+            xaxis_title="Time",
+            yaxis_title="Value",
             showlegend=True,
             height=400
         )
         return fig
 
-    # Crear gráfico para este panel específico
+    # Create graph for this specific panel
     return detector.plot_multiple_series(selected_series, 'Value', selected_methods)
 
 if __name__ == '__main__':

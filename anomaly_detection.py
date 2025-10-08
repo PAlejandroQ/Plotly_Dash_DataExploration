@@ -8,18 +8,18 @@ from typing import Dict, List, Optional
 
 class TimeSeriesAnomalyDetector:
     """
-    Clase para detectar anomalías en series de tiempo utilizando diferentes métodos.
-    Inicialmente implementa Isolation Forest, pero está diseñada para ser extensible.
+    Class to detect anomalies in time series using different methods.
+    Initially implements Isolation Forest, but is designed to be extensible.
     """
 
     def __init__(self, series_data: Optional[Dict[str, pd.DataFrame]] = None):
         """
-        Inicializa el detector de anomalías.
+        Initializes the anomaly detector.
 
         Args:
-            series_data: Diccionario opcional con series de tiempo.
-                        Llave: nombre de la serie, Valor: DataFrame de Pandas.
-                        El índice debe ser de tipo datetime.
+            series_data: Optional dictionary with time series.
+                        Key: series name, Value: Pandas DataFrame.
+                        The index must be of type datetime.
         """
         self.dataframes: Dict[str, pd.DataFrame] = {}
         self.results: Dict[str, pd.DataFrame] = {}
@@ -30,49 +30,49 @@ class TimeSeriesAnomalyDetector:
 
     def add_series(self, name: str, df: pd.DataFrame) -> None:
         """
-        Agrega una nueva serie de tiempo al detector.
+        Adds a new time series to the detector.
 
         Args:
-            name: Nombre identificador de la serie
-            df: DataFrame de Pandas con la serie de tiempo.
-                Debe tener un índice de tipo datetime.
+            name: Identifier name for the series
+            df: Pandas DataFrame with the time series.
+                Must have a datetime index.
         """
-        # Limpiar y convertir valores numéricos si es necesario
+        # Clean and convert numeric values if necessary
         df = self._clean_numeric_columns(df)
 
-        # Asegurar que el índice sea datetime
+        # Ensure the index is datetime
         if not isinstance(df.index, pd.DatetimeIndex):
-            # Si no tiene índice datetime, intentar convertir la primera columna
+            # If no datetime index, try to convert the first column
             if len(df.columns) > 0:
                 first_col = df.columns[0]
                 try:
                     df = df.set_index(pd.to_datetime(df[first_col]))
                     df = df.drop(columns=[first_col])
                 except:
-                    raise ValueError(f"No se pudo convertir el índice a datetime para la serie {name}")
+                    raise ValueError(f"Could not convert index to datetime for series {name}")
 
         self.dataframes[name] = df.copy()
         self.results[name] = pd.DataFrame(index=df.index)
 
     def _clean_numeric_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """
-        Limpia columnas numéricas que pueden tener formatos problemáticos.
+        Cleans numeric columns that may have problematic formats.
 
         Args:
-            df: DataFrame a limpiar
+            df: DataFrame to clean
 
         Returns:
-            DataFrame con columnas numéricas limpiadas
+            DataFrame with cleaned numeric columns
         """
         df_clean = df.copy()
 
         for col in df_clean.columns:
             if df_clean[col].dtype == 'object':
-                # Intentar convertir a numérico
+                # Try to convert to numeric
                 try:
                     df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
                 except:
-                    # Si falla, intentar limpieza manual para valores con separadores de miles
+                    # If fails, try manual cleaning for values with thousand separators
                     def clean_value(val):
                         try:
                             return float(val)
@@ -80,7 +80,7 @@ class TimeSeriesAnomalyDetector:
                             if isinstance(val, str):
                                 parts = val.split('.')
                                 if len(parts) > 2:
-                                    # Mantener el último punto como decimal
+                                    # Keep the last dot as decimal
                                     decimal_part = parts[-1]
                                     integer_part = ''.join(parts[:-1])
                                     cleaned = f"{integer_part}.{decimal_part}"
@@ -97,7 +97,7 @@ class TimeSeriesAnomalyDetector:
 
                     df_clean[col] = df_clean[col].apply(clean_value)
 
-        # Eliminar filas con NaN en todas las columnas numéricas
+        # Drop rows with NaN in all numeric columns
         numeric_cols = df_clean.select_dtypes(include=[np.number]).columns
         if len(numeric_cols) > 0:
             df_clean = df_clean.dropna(subset=numeric_cols)
@@ -107,104 +107,103 @@ class TimeSeriesAnomalyDetector:
     def apply_isolation_forest(self, series_name: str, target_col: str,
                              n_estimators: int = 100, contamination: float = 0.01) -> None:
         """
-        Aplica el método Isolation Forest para detectar anomalías.
+        Applies the Isolation Forest method to detect anomalies.
 
         Args:
-            series_name: Nombre de la serie a analizar
-            target_col: Nombre de la columna objetivo
-            n_estimators: Número de estimadores para IsolationForest
-            contamination: Proporción esperada de anomalías
+            series_name: Name of the series to analyze
+            target_col: Name of the target column
+            n_estimators: Number of estimators for IsolationForest
+            contamination: Proportion of expected anomalies
         """
         if series_name not in self.dataframes:
-            raise ValueError(f"Serie '{series_name}' no encontrada")
+            raise ValueError(f"Series '{series_name}' not found")
 
         df = self.dataframes[series_name]
         if target_col not in df.columns:
-            raise ValueError(f"Columna '{target_col}' no encontrada en la serie '{series_name}'")
+            raise ValueError(f"Column '{target_col}' not found in series '{series_name}'")
 
-        # Feature Engineering: Crear features de rezago
+        # Feature Engineering: Create lag features
         data = df[[target_col]].copy()
         data.columns = ['value']
 
-        # Crear lags (t-1, t-2, t-3)
+        # Create lags (t-1, t-2, t-3)
         for lag in range(1, 4):
             data[f'lag_{lag}'] = data['value'].shift(lag)
 
-        # Eliminar filas con NaN (primeras filas sin lags)
+        # Drop rows with NaN (first rows without lags)
         data_clean = data.dropna()
 
         if len(data_clean) < 10:
-            raise ValueError("No hay suficientes datos para aplicar Isolation Forest")
+            raise ValueError("Not enough data to apply Isolation Forest")
 
-        # Preparar features para el modelo
+        # Prepare features for the model
         features = data_clean[['value', 'lag_1', 'lag_2', 'lag_3']]
 
-        # Entrenar IsolationForest
+        # Train IsolationForest
         iforest = IsolationForest(
             n_estimators=n_estimators,
             contamination=contamination,
             random_state=42
         )
 
-        # Predicción: -1 para anomalía, 1 para normal
+        # Prediction: -1 for anomaly, 1 for normal
         predictions = iforest.fit_predict(features)
         scores = iforest.score_samples(features)
 
-        # Crear DataFrame con resultados alineados con el índice original
+        # Create DataFrame with results aligned with the original index
         result_df = pd.DataFrame({
             'is_anomaly_IF': np.nan
         }, index=data.index)
 
-        # Asignar predicciones solo para las filas que se usaron en el modelo
+        # Assign predictions only for rows used in the model
         result_df.loc[data_clean.index, 'is_anomaly_IF'] = predictions
         result_df.loc[data_clean.index, 'anomaly_score_IF'] = scores
 
-        # Si no existe results para esta serie, inicializarlo
+        # If results for this series do not exist, initialize it
         if series_name not in self.results:
             self.results[series_name] = result_df
         else:
-            # Combinar con resultados existentes
+            # Combine with existing results
             self.results[series_name] = pd.concat([
                 self.results[series_name], result_df
             ], axis=1)
 
     def apply_method(self, series_name: str, method_name: str, **kwargs) -> None:
         """
-        Método placeholder para futuras implementaciones de otros algoritmos
-        de detección de anomalías.
+        Placeholder method for future implementations of other anomaly detection algorithms.
 
         Args:
-            series_name: Nombre de la serie a analizar
-            method_name: Nombre del método a aplicar
-            **kwargs: Parámetros específicos del método
+            series_name: Name of the series to analyze
+            method_name: Name of the method to apply
+            **kwargs: Specific parameters for the method
         """
-        # Este es un placeholder para futuras extensiones
-        # Por ejemplo: apply_one_class_svm, apply_hampel_filter, etc.
-        raise NotImplementedError(f"Método '{method_name}' aún no implementado")
+        # This is a placeholder for future extensions
+        # For example: apply_one_class_svm, apply_hampel_filter, etc.
+        raise NotImplementedError(f"Method '{method_name}' not yet implemented")
 
     def plot_anomalies(self, series_name: str, target_col: str,
                       methods_to_plot: List[str]) -> go.Figure:
         """
-        Crea una visualización interactiva de la serie de tiempo con anomalías detectadas.
+        Creates an interactive visualization of the time series with detected anomalies.
 
         Args:
-            series_name: Nombre de la serie a visualizar
-            target_col: Nombre de la columna objetivo
-            methods_to_plot: Lista de métodos cuyas anomalías mostrar
+            series_name: Name of the series to visualize
+            target_col: Name of the target column
+            methods_to_plot: List of methods whose anomalies to show
 
         Returns:
-            Figura de Plotly con la visualización
+            Plotly figure with the visualization
         """
         if series_name not in self.dataframes:
-            raise ValueError(f"Serie '{series_name}' no encontrada")
+            raise ValueError(f"Series '{series_name}' not found")
 
         df = self.dataframes[series_name]
         results = self.results.get(series_name, pd.DataFrame())
 
-        # Crear figura base
+        # Create base figure
         fig = go.Figure()
 
-        # Agregar la serie de tiempo principal
+        # Add the main time series
         fig.add_trace(go.Scatter(
             x=df.index,
             y=df[target_col],
@@ -213,27 +212,27 @@ class TimeSeriesAnomalyDetector:
             line=dict(color='blue', width=2)
         ))
 
-        # Colores para diferentes métodos
+        # Colors for different methods
         colors = ['red', 'orange', 'green', 'purple', 'brown']
 
-        # Agregar anomalías detectadas por cada método
+        # Add detected anomalies by each method
         for i, method in enumerate(methods_to_plot):
             anomaly_col = f'is_anomaly_{method}'
 
             if anomaly_col not in results.columns:
-                print(f"Advertencia: Columna '{anomaly_col}' no encontrada en resultados")
+                print(f"Warning: Column '{anomaly_col}' not found in results")
                 continue
 
-            # Filtrar solo anomalías (-1)
+            # Filter only anomalies (-1)
             anomalies = results[results[anomaly_col] == -1]
 
             if len(anomalies) > 0:
-                # Agregar puntos de anomalías
+                # Add anomaly points
                 fig.add_trace(go.Scatter(
                     x=anomalies.index,
                     y=df.loc[anomalies.index, target_col],
                     mode='markers',
-                    name=f'Anomalías - {method}',
+                    name=f'Anomalies - {method}',
                     marker=dict(
                         color=colors[i % len(colors)],
                         size=8,
@@ -241,10 +240,10 @@ class TimeSeriesAnomalyDetector:
                     )
                 ))
 
-        # Configurar layout
+        # Configure layout
         fig.update_layout(
-            title=f'Análisis de Anomalías - {series_name}',
-            xaxis_title='Tiempo',
+            title=f'Anomaly Analysis - {series_name}',
+            xaxis_title='Time',
             yaxis_title=target_col,
             hovermode='x unified',
             showlegend=True
@@ -255,37 +254,37 @@ class TimeSeriesAnomalyDetector:
     def plot_multiple_series(self, series_names: List[str], target_col: str,
                            methods_to_plot: List[str]) -> go.Figure:
         """
-        Crea una visualización interactiva combinada de múltiples series de tiempo con anomalías detectadas.
+        Creates an interactive combined visualization of multiple time series with detected anomalies.
 
         Args:
-            series_names: Lista de nombres de las series a visualizar
-            target_col: Nombre de la columna objetivo
-            methods_to_plot: Lista de métodos cuyas anomalías mostrar
+            series_names: List of names of the series to visualize
+            target_col: Name of the target column
+            methods_to_plot: List of methods whose anomalies to show
 
         Returns:
-            Figura de Plotly con la visualización combinada
+            Plotly figure with the combined visualization
         """
-        # Crear figura base
+        # Create base figure
         fig = go.Figure()
 
-        # Colores para diferentes series
+        # Colors for different series
         series_colors = ['blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive']
         anomaly_colors = ['red', 'darkgreen', 'darkorange', 'darkviolet', 'darkred', 'hotpink', 'dimgray', 'darkolivegreen']
 
         for i, series_name in enumerate(series_names):
             if series_name not in self.dataframes:
-                print(f"Advertencia: Serie '{series_name}' no encontrada")
+                print(f"Warning: Series '{series_name}' not found")
                 continue
 
             df = self.dataframes[series_name]
             results = self.results.get(series_name, pd.DataFrame())
 
-            # Color para esta serie
+            # Color for this series
             color_idx = i % len(series_colors)
             series_color = series_colors[color_idx]
             anomaly_color = anomaly_colors[color_idx]
 
-            # Agregar la serie de tiempo principal
+            # Add the main time series
             fig.add_trace(go.Scatter(
                 x=df.index,
                 y=df[target_col],
@@ -295,24 +294,24 @@ class TimeSeriesAnomalyDetector:
                 legendgroup=series_name
             ))
 
-            # Agregar anomalías detectadas por cada método
+            # Add detected anomalies by each method
             for method in methods_to_plot:
                 anomaly_col = f'is_anomaly_{method}'
 
                 if anomaly_col not in results.columns:
-                    print(f"Advertencia: Columna '{anomaly_col}' no encontrada en resultados de {series_name}")
+                    print(f"Warning: Column '{anomaly_col}' not found in results for {series_name}")
                     continue
 
-                # Filtrar solo anomalías (-1)
+                # Filter only anomalies (-1)
                 anomalies = results[results[anomaly_col] == -1]
 
                 if len(anomalies) > 0:
-                    # Agregar puntos de anomalías
+                    # Add anomaly points
                     fig.add_trace(go.Scatter(
                         x=anomalies.index,
                         y=df.loc[anomalies.index, target_col],
                         mode='markers',
-                        name=f'Anomalías {series_name} - {method}',
+                        name=f'Anomalies {series_name} - {method}',
                         marker=dict(
                             color=anomaly_color,
                             size=8,
@@ -322,11 +321,11 @@ class TimeSeriesAnomalyDetector:
                         showlegend=True
                     ))
 
-        # Configurar layout
+        # Configure layout
         series_list = ", ".join(series_names)
         fig.update_layout(
-            title=f'Análisis de Anomalías - Series: {series_list}',
-            xaxis_title='Tiempo',
+            title=f'Anomaly Analysis - Series: {series_list}',
+            xaxis_title='Time',
             yaxis_title=target_col,
             hovermode='x unified',
             showlegend=True,
@@ -337,55 +336,55 @@ class TimeSeriesAnomalyDetector:
 
     def load_series_from_csv(self, file_path: str, target_col: str = 'Value') -> List[Dict[str, str]]:
         """
-        Carga series de tiempo desde un CSV grande usando Polars para eficiencia.
-        Agrupa los datos por WebId, Id, Name y los añade al detector.
+        Loads time series from a large CSV using Polars for efficiency.
+        Groups data by WebId, Id, Name and adds them to the detector.
 
         Args:
-            file_path: Ruta al archivo CSV.
-            target_col: Nombre de la columna de valor (por defecto 'Value').
+            file_path: Path to the CSV file.
+            target_col: Name of the value column (default 'Value').
 
         Returns:
-            Una lista de diccionarios con opciones para el selector de series de Dash.
-            Formato: [{'label': 'Id_Name', 'value': 'WebId'}, ...]
+            A list of dictionaries with options for the Dash selector.
+            Format: [{'label': 'Id_Name', 'value': 'WebId'}, ...]
         """
-        # 1. Carga Eficiente y Filtro (Usar Polars)
-        # Cargar solo las columnas necesarias
+        # 1. Efficient Loading and Filtering (Use Polars)
+        # Load only necessary columns
         columns_to_load = ['WebId', 'Id', 'Name', 'Timestamp', target_col]
 
         try:
             df_pl = pl.read_csv(file_path, columns=columns_to_load)
         except Exception as e:
-            raise ValueError(f"Error al cargar el archivo CSV: {e}")
+            raise ValueError(f"Error loading CSV file: {e}")
 
-        # 2. Conversión de Tipos (Polars)
-        # Asegurar el tipo de dato para Timestamp
+        # 2. Type Conversion (Polars)
+        # Ensure Timestamp type
         df_pl = df_pl.with_columns(
             pl.col("Timestamp").str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S").alias("Timestamp")
         )
 
-        # 3. Agrupación y Generación de Series (Polars)
-        # Agrupar por WebId, Id, Name
+        # 3. Grouping and Series Generation (Polars)
+        # Group by WebId, Id, Name
         options_list = []
 
-        # Obtener grupos únicos
+        # Get unique groups
         grouped = df_pl.group_by(['WebId', 'Id', 'Name'])
 
         for group_keys, group_df_pl in grouped:
             web_id, id_, name_ = group_keys
 
-            # 4. Generación de Metadata y Pandas DataFrame
+            # 4. Metadata Generation and Pandas DataFrame
             series_name = f"{id_}_{name_}"
 
-            # Convertir a Pandas DataFrame para compatibilidad con el resto de la clase
+            # Convert to Pandas DataFrame for compatibility with the rest of the class
             df_pd = group_df_pl.select(['Timestamp', target_col]).to_pandas()
             df_pd.set_index('Timestamp', inplace=True)
 
-            # 5. Agregar la Serie y la Opción de Dash
-            self.add_series(str(web_id), df_pd)  # Usar WebId como clave
+            # 5. Add the Series and Dash Option
+            self.add_series(str(web_id), df_pd)  # Use WebId as key
 
             options_list.append({
-                'label': series_name,  # ID_Name para el texto del selector (label de Dash)
-                'value': str(web_id)   # WebId para la clave interna (value de Dash)
+                'label': series_name,  # ID_Name for the selector text (label for Dash)
+                'value': str(web_id)   # WebId for internal key (value for Dash)
             })
 
         return options_list
