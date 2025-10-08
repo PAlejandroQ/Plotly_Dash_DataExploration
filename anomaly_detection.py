@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import polars as pl
 from sklearn.ensemble import IsolationForest
 import plotly.graph_objects as go
 from typing import Dict, List, Optional
@@ -333,3 +334,58 @@ class TimeSeriesAnomalyDetector:
         )
 
         return fig
+
+    def load_series_from_csv(self, file_path: str, target_col: str = 'Value') -> List[Dict[str, str]]:
+        """
+        Carga series de tiempo desde un CSV grande usando Polars para eficiencia.
+        Agrupa los datos por WebId, Id, Name y los añade al detector.
+
+        Args:
+            file_path: Ruta al archivo CSV.
+            target_col: Nombre de la columna de valor (por defecto 'Value').
+
+        Returns:
+            Una lista de diccionarios con opciones para el selector de series de Dash.
+            Formato: [{'label': 'Id_Name', 'value': 'WebId'}, ...]
+        """
+        # 1. Carga Eficiente y Filtro (Usar Polars)
+        # Cargar solo las columnas necesarias
+        columns_to_load = ['WebId', 'Id', 'Name', 'Timestamp', target_col]
+
+        try:
+            df_pl = pl.read_csv(file_path, columns=columns_to_load)
+        except Exception as e:
+            raise ValueError(f"Error al cargar el archivo CSV: {e}")
+
+        # 2. Conversión de Tipos (Polars)
+        # Asegurar el tipo de dato para Timestamp
+        df_pl = df_pl.with_columns(
+            pl.col("Timestamp").str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S").alias("Timestamp")
+        )
+
+        # 3. Agrupación y Generación de Series (Polars)
+        # Agrupar por WebId, Id, Name
+        options_list = []
+
+        # Obtener grupos únicos
+        grouped = df_pl.group_by(['WebId', 'Id', 'Name'])
+
+        for group_keys, group_df_pl in grouped:
+            web_id, id_, name_ = group_keys
+
+            # 4. Generación de Metadata y Pandas DataFrame
+            series_name = f"{id_}_{name_}"
+
+            # Convertir a Pandas DataFrame para compatibilidad con el resto de la clase
+            df_pd = group_df_pl.select(['Timestamp', target_col]).to_pandas()
+            df_pd.set_index('Timestamp', inplace=True)
+
+            # 5. Agregar la Serie y la Opción de Dash
+            self.add_series(str(web_id), df_pd)  # Usar WebId como clave
+
+            options_list.append({
+                'label': series_name,  # ID_Name para el texto del selector (label de Dash)
+                'value': str(web_id)   # WebId para la clave interna (value de Dash)
+            })
+
+        return options_list

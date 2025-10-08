@@ -1,89 +1,142 @@
 import dash
-from dash import html, dcc, Input, Output
+from dash import html, dcc, Input, Output, State, ALL, MATCH
 import dash_bootstrap_components as dbc
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from anomaly_detection import TimeSeriesAnomalyDetector
+import uuid
 
 # Configuración de la aplicación Dash
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "FILE LABEL"
 
-def generate_synthetic_data():
+def initialize_detector_with_csv():
     """
-    Genera datos sintéticos de series de tiempo con anomalías claras.
+    Inicializa el detector cargando datos desde CSV usando Polars.
     """
-    # Crear timestamps para 1000 puntos de datos
-    start_date = datetime(2024, 1, 1)
-    timestamps = [start_date + timedelta(minutes=i) for i in range(1000)]
+    detector = TimeSeriesAnomalyDetector()
 
-    np.random.seed(42)  # Para reproducibilidad
+    # Cargar datos desde CSV con múltiples series
+    csv_path = 'csv_to_dash/multi_series_test.csv'
+    try:
+        series_options = detector.load_series_from_csv(csv_path, target_col='Value')
+        print(f"Cargadas {len(series_options)} series desde CSV")
+        for option in series_options:
+            print(f"  - {option['label']} (WebId: {option['value']})")
+    except Exception as e:
+        print(f"Error al cargar CSV: {e}")
+        print("Generando datos sintéticos de respaldo...")
+        # Fallback a datos sintéticos si falla la carga
+        series_options = generate_fallback_options(detector)
 
-    # Serie A: Patrón sinusoidal con ruido y algunas anomalías
-    time_values = np.arange(1000)
-    serie_a_values = 10 + 5 * np.sin(2 * np.pi * time_values / 100) + np.random.normal(0, 0.5, 1000)
-
-    # Agregar anomalías claras en Serie A
-    anomaly_indices_a = [200, 400, 600, 800]
-    for idx in anomaly_indices_a:
-        serie_a_values[idx] += np.random.choice([-15, 15])  # Anomalías grandes
-
-    # Serie B: Tendencia lineal con estacionalidad y anomalías
-    serie_b_values = 20 + 0.01 * time_values + 3 * np.sin(2 * np.pi * time_values / 50) + np.random.normal(0, 0.8, 1000)
-
-    # Agregar anomalías en Serie B
-    anomaly_indices_b = [150, 350, 550, 750, 900]
-    for idx in anomaly_indices_b:
-        serie_b_values[idx] += np.random.choice([-12, 12])  # Anomalías grandes
-
-    # Serie C: Patrón más complejo con cambios de nivel
-    serie_c_values = 15 + np.random.normal(0, 1, 1000)
-    # Cambios de nivel
-    serie_c_values[300:500] += 8
-    serie_c_values[700:] += 5
-
-    # Agregar anomalías en Serie C
-    anomaly_indices_c = [100, 450, 800]
-    for idx in anomaly_indices_c:
-        serie_c_values[idx] += np.random.choice([-20, 20])
-
-    # Crear DataFrames
-    df_a = pd.DataFrame({'Value': serie_a_values}, index=timestamps)
-    df_b = pd.DataFrame({'Value': serie_b_values}, index=timestamps)
-    df_c = pd.DataFrame({'Value': serie_c_values}, index=timestamps)
-
-    return {
-        'SerieA': df_a,
-        'SerieB': df_b,
-        'SerieC': df_c
-    }
-
-def initialize_detector():
-    """
-    Inicializa el detector con datos sintéticos y aplica Isolation Forest.
-    """
-    # Generar datos
-    synthetic_data = generate_synthetic_data()
-
-    # Inicializar detector
-    detector = TimeSeriesAnomalyDetector(synthetic_data)
-
-    # Aplicar Isolation Forest a todas las series
+    # Aplicar Isolation Forest a todas las series cargadas
     for series_name in detector.dataframes.keys():
-        detector.apply_isolation_forest(
-            series_name=series_name,
-            target_col='Value',
-            n_estimators=100,
-            contamination=0.01  # 1% de anomalías esperadas
-        )
+        try:
+            detector.apply_isolation_forest(
+                series_name=series_name,
+                target_col='Value',
+                n_estimators=100,
+                contamination=0.01  # 1% de anomalías esperadas
+            )
+            print(f"Aplicado Isolation Forest a {series_name}")
+        except Exception as e:
+            print(f"Error al procesar {series_name}: {e}")
 
-    return detector
+    return detector, series_options
 
-# Inicializar el detector global
-detector = initialize_detector()
+def generate_fallback_options(detector):
+    """
+    Genera opciones de respaldo si falla la carga del CSV.
+    """
+    # Datos sintéticos simples como respaldo
+    timestamps = [datetime(2024, 1, 1) + timedelta(minutes=i) for i in range(100)]
 
-# Layout de la aplicación
+    # Serie simple
+    values = 10 + np.random.normal(0, 1, 100)
+    df = pd.DataFrame({'Value': values}, index=timestamps)
+
+    detector.add_series('FALLBACK001', df)
+
+    return [{'label': 'Serie_Fallback', 'value': 'FALLBACK001'}]
+
+# Inicializar detector y opciones globales
+detector, series_options = initialize_detector_with_csv()
+
+def create_graph_panel(panel_id):
+    """
+    Crea un template para un panel de gráfico dinámico.
+
+    Args:
+        panel_id: ID único del panel
+
+    Returns:
+        Componente dbc.Row con el panel completo
+    """
+    return dbc.Row([
+        # Encabezado del panel con botón de eliminación
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader([
+                    html.H5(f"Panel de Visualización #{panel_id}", className="d-inline-block me-2"),
+                    dbc.Button(
+                        "×",
+                        id={'type': 'delete-graph-button', 'index': panel_id},
+                        color="danger",
+                        size="sm",
+                        className="float-end",
+                        style={"fontSize": "18px", "padding": "0 8px"}
+                    )
+                ]),
+                dbc.CardBody([
+                    # Controles del panel
+                    dbc.Row([
+                        dbc.Col([
+                            html.H6("Series de Tiempo"),
+                            dcc.Checklist(
+                                id={'type': 'series-selector-checklist', 'index': panel_id},
+                                options=series_options,
+                                value=[series_options[0]['value']] if series_options else [],  # Primera serie por defecto
+                                labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px'},
+                                inputStyle={"margin-right": "5px"}
+                            )
+                        ], width=6),
+                        dbc.Col([
+                            html.H6("Métodos de Detección"),
+                            dcc.Checklist(
+                                id={'type': 'methods-selector-checklist', 'index': panel_id},
+                                options=[
+                                    {'label': 'Isolation Forest', 'value': 'IF'}
+                                ],
+                                value=['IF'],
+                                labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px'},
+                                inputStyle={"margin-right": "5px"}
+                            )
+                        ], width=6)
+                    ]),
+
+                    html.Hr(),
+
+                    # Área del gráfico
+                    dcc.Loading(
+                        id={'type': 'loading-plot', 'index': panel_id},
+                        type="default",
+                        children=[
+                            dcc.Graph(
+                                id={'type': 'anomalies-graph', 'index': panel_id},
+                                style={'height': '400px'},
+                                config={'displayModeBar': True, 'displaylogo': False}
+                            )
+                        ]
+                    )
+                ])
+            ], className="mb-4")
+        ], width=12)
+    ])
+
+# Layout inicial con un panel por defecto
+initial_panel_id = str(uuid.uuid4())[:8]
+
 app.layout = dbc.Container([
     dbc.Row([
         # Título principal
@@ -93,84 +146,97 @@ app.layout = dbc.Container([
         ], width=12)
     ]),
 
+    # dcc.Store para manejar el estado de los paneles
+    dcc.Store(id='graph-store', data=[{
+        'id': initial_panel_id,
+        'series': [series_options[0]['value']] if series_options else [],
+        'methods': ['IF']
+    }]),
+
+    # Contenedor de gráficos dinámicos
+    html.Div(id='graph-container', children=[
+        create_graph_panel(initial_panel_id)
+    ]),
+
+    # Botón para duplicar paneles
     dbc.Row([
-        # Panel lateral de control (3 columnas)
         dbc.Col([
-            dbc.Card([
-                dbc.CardHeader(html.H4("Panel de Control", className="text-center")),
-                dbc.CardBody([
-                    # Selector de Series
-                    html.H5("Seleccionar Series de Tiempo"),
-                    dcc.Checklist(
-                        id='series-selector-checklist',
-                        options=[
-                            {'label': 'Serie A (Sinusoidal)', 'value': 'SerieA'},
-                            {'label': 'Serie B (Tendencia)', 'value': 'SerieB'},
-                            {'label': 'Serie C (Cambios de Nivel)', 'value': 'SerieC'}
-                        ],
-                        value=['SerieA'],  # Serie A seleccionada por defecto
-                        labelStyle={'display': 'block', 'margin-bottom': '10px'},
-                        inputStyle={"margin-right": "10px"}
-                    ),
-
-                    html.Hr(),
-
-                    # Selector de Métodos
-                    html.H5("Seleccionar Métodos de Detección"),
-                    dcc.Checklist(
-                        id='methods-selector-checklist',
-                        options=[
-                            {'label': 'Isolation Forest (IF)', 'value': 'IF'}
-                        ],
-                        value=['IF'],  # IF seleccionado por defecto
-                        labelStyle={'display': 'block', 'margin-bottom': '10px'},
-                        inputStyle={"margin-right": "10px"}
-                    ),
-
-                    html.Hr(),
-
-                    # Información adicional
-                    html.Div([
-                        html.H6("Información:"),
-                        html.P("Selecciona una o más series de tiempo y métodos de detección. "
-                              "Las anomalías detectadas se mostrarán como puntos rojos en el gráfico.",
-                              className="text-muted small")
-                    ])
-                ])
-            ], className="mb-4")
-        ], width=3),
-
-        # Área de gráfico (9 columnas)
-        dbc.Col([
-            dbc.Card([
-                dbc.CardHeader(html.H4("Visualización de Anomalías", className="text-center")),
-                dbc.CardBody([
-                    dcc.Loading(
-                        id="loading-plot",
-                        type="default",
-                        children=[
-                            dcc.Graph(
-                                id='anomalies-graph',
-                                style={'height': '600px'},
-                                config={'displayModeBar': True, 'displaylogo': False}
-                            )
-                        ]
-                    )
-                ])
-            ])
-        ], width=9)
+            dbc.Button(
+                "➕ New Panel",
+                id='add-graph-button',
+                color="success",
+                className="w-100",
+                style={"marginTop": "20px"}
+            )
+        ], width=12)
     ])
+
 ], fluid=True, className="p-4")
 
 @app.callback(
-    Output('anomalies-graph', 'figure'),
-    Input('series-selector-checklist', 'value'),
-    Input('methods-selector-checklist', 'value')
+    [Output('graph-container', 'children'),
+     Output('graph-store', 'data')],
+    [Input('add-graph-button', 'n_clicks'),
+     Input({'type': 'delete-graph-button', 'index': ALL}, 'n_clicks')],
+    [State('graph-store', 'data')],
+    prevent_initial_call=True
 )
-def update_graph(selected_series, selected_methods):
+def manage_graph_panels(add_clicks, delete_clicks, current_panels):
     """
-    Callback principal que actualiza el gráfico basado en las selecciones del usuario.
+    Callback para manejar la creación y eliminación de paneles.
     """
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
+
+    trigger_id = ctx.triggered[0]['prop_id']
+
+    # Determinar qué acción se realizó
+    if 'add-graph-button' in trigger_id:
+        # Agregar nuevo panel
+        new_panel_id = str(uuid.uuid4())[:8]
+        current_panels.append({
+            'id': new_panel_id,
+            'series': [series_options[0]['value']] if series_options else [],
+            'methods': ['IF']
+        })
+    else:
+        # Eliminar panel específico
+        # Encontrar cuál botón de eliminación fue presionado
+        for i, click_count in enumerate(delete_clicks):
+            if click_count and click_count > 0:
+                # Este es el panel a eliminar
+                if i < len(current_panels):
+                    current_panels.pop(i)
+                break
+
+    # Asegurar que al menos haya un panel
+    if not current_panels:
+        new_panel_id = str(uuid.uuid4())[:8]
+        current_panels = [{
+            'id': new_panel_id,
+            'series': [series_options[0]['value']] if series_options else [],
+            'methods': ['IF']
+        }]
+
+    # Crear componentes para todos los paneles
+    panel_components = [create_graph_panel(panel['id']) for panel in current_panels]
+
+    return panel_components, current_panels
+
+@app.callback(
+    Output({'type': 'anomalies-graph', 'index': MATCH}, 'figure'),
+    [Input({'type': 'series-selector-checklist', 'index': MATCH}, 'value'),
+     Input({'type': 'methods-selector-checklist', 'index': MATCH}, 'value')],
+    [State({'type': 'anomalies-graph', 'index': MATCH}, 'id')],
+    prevent_initial_call=True
+)
+def update_individual_graph(selected_series, selected_methods, graph_id):
+    """
+    Callback para actualizar gráficos individuales usando patrón MATCH.
+    """
+    panel_id = graph_id['index']
+
     if not selected_series:
         # Si no hay series seleccionadas, mostrar gráfico vacío
         import plotly.graph_objects as go
@@ -179,11 +245,12 @@ def update_graph(selected_series, selected_methods):
             title="Selecciona al menos una serie de tiempo",
             xaxis_title="Tiempo",
             yaxis_title="Valor",
-            showlegend=True
+            showlegend=True,
+            height=400
         )
         return fig
 
-    # Crear gráfico combinado para múltiples series
+    # Crear gráfico para este panel específico
     return detector.plot_multiple_series(selected_series, 'Value', selected_methods)
 
 if __name__ == '__main__':
