@@ -139,38 +139,36 @@ initial_panel_id = str(uuid.uuid4())[:8]
 
 app.layout = dbc.Container([
     dbc.Row([
-        # Título principal
         dbc.Col([
             html.H1("FILE LABEL", className="text-center my-4", style={"color": "#2c3e50"}),
             html.Hr()
         ], width=12)
     ]),
 
-    # dcc.Store para manejar el estado de los paneles
     dcc.Store(id='graph-store', data=[{
         'id': initial_panel_id,
         'series': [series_options[0]['value']] if series_options else [],
         'methods': ['IF']
     }]),
 
-    # Contenedor de gráficos dinámicos
-    html.Div(id='graph-container', children=[
-        create_graph_panel(initial_panel_id)
-    ]),
+    # Contenedor de gráficos dinámicos (sin restricciones de altura)
+    html.Div(
+        id='graph-container',
+        children=[create_graph_panel(initial_panel_id)],
+        style={"width": "100%"}
+    ),
 
-    # Botón para duplicar paneles
-    dbc.Row([
-        dbc.Col([
-            dbc.Button(
-                "➕ New Panel",
-                id='add-graph-button',
-                color="success",
-                className="w-100",
-                style={"marginTop": "20px"}
-            )
-        ], width=12)
-    ])
-
+    # Botón para duplicar paneles (fuera de cualquier Row/Col que pueda colapsar)
+    html.Div(
+        dbc.Button(
+            "➕ New Panel",
+            id='add-graph-button',
+            color="success",
+            className="w-100",
+            style={"marginTop": "180px"} # Ajustado para que el botón esté más abajo
+        ),
+        style={"marginBottom": "40px"}
+    )
 ], fluid=True, className="p-4")
 
 @app.callback(
