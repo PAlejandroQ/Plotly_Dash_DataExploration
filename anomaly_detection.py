@@ -36,6 +36,9 @@ class TimeSeriesAnomalyDetector:
             df: DataFrame de Pandas con la serie de tiempo.
                 Debe tener un índice de tipo datetime.
         """
+        # Limpiar y convertir valores numéricos si es necesario
+        df = self._clean_numeric_columns(df)
+
         # Asegurar que el índice sea datetime
         if not isinstance(df.index, pd.DatetimeIndex):
             # Si no tiene índice datetime, intentar convertir la primera columna
@@ -49,6 +52,56 @@ class TimeSeriesAnomalyDetector:
 
         self.dataframes[name] = df.copy()
         self.results[name] = pd.DataFrame(index=df.index)
+
+    def _clean_numeric_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Limpia columnas numéricas que pueden tener formatos problemáticos.
+
+        Args:
+            df: DataFrame a limpiar
+
+        Returns:
+            DataFrame con columnas numéricas limpiadas
+        """
+        df_clean = df.copy()
+
+        for col in df_clean.columns:
+            if df_clean[col].dtype == 'object':
+                # Intentar convertir a numérico
+                try:
+                    df_clean[col] = pd.to_numeric(df_clean[col], errors='coerce')
+                except:
+                    # Si falla, intentar limpieza manual para valores con separadores de miles
+                    def clean_value(val):
+                        try:
+                            return float(val)
+                        except (ValueError, TypeError):
+                            if isinstance(val, str):
+                                parts = val.split('.')
+                                if len(parts) > 2:
+                                    # Mantener el último punto como decimal
+                                    decimal_part = parts[-1]
+                                    integer_part = ''.join(parts[:-1])
+                                    cleaned = f"{integer_part}.{decimal_part}"
+                                    try:
+                                        return float(cleaned)
+                                    except ValueError:
+                                        return np.nan
+                                else:
+                                    try:
+                                        return float(val)
+                                    except ValueError:
+                                        return np.nan
+                            return np.nan
+
+                    df_clean[col] = df_clean[col].apply(clean_value)
+
+        # Eliminar filas con NaN en todas las columnas numéricas
+        numeric_cols = df_clean.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) > 0:
+            df_clean = df_clean.dropna(subset=numeric_cols)
+
+        return df_clean
 
     def apply_isolation_forest(self, series_name: str, target_col: str,
                              n_estimators: int = 100, contamination: float = 0.01) -> None:
