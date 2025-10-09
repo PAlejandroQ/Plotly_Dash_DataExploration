@@ -352,11 +352,23 @@ class TimeSeriesAnomalyDetector:
         columns_to_load = ['WebId', 'Id', 'Name', 'Timestamp', target_col]
 
         schema = {
-        'WebId': pl.Utf8, # Asumimos Utf8 para IDs por seguridad
+        'WebId': pl.Utf8,
         'Id': pl.Utf8,
         'Name': pl.Utf8,
-        'Timestamp': pl.Utf8,
-        target_col: pl.Utf8
+        'Path': pl.Utf8,
+        'Descriptor': pl.Utf8,
+        'PointClass': pl.Utf8,
+        'PointType': pl.Utf8,
+        'DigitalSetName': pl.Utf8,
+        'EngineeringUnits': pl.Utf8,
+        'Span': pl.Utf8,
+        'Zero': pl.Utf8,
+        'Step': pl.Utf8,
+        'Future': pl.Utf8,
+        'DisplayDigits': pl.Utf8,
+        'Links': pl.Utf8,
+        'Timestamp': pl.Utf8, 
+        'Value': pl.Utf8      
         }
 
         try:
