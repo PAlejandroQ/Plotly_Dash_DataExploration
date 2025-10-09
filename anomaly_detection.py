@@ -360,9 +360,12 @@ class TimeSeriesAnomalyDetector:
         }
 
         try:
-            df_pl = pl.scan_csv(file_path, 
+            df_lazy = pl.scan_csv(file_path, 
                                             schema=schema, 
-                                            ).collect()
+                                            infer_schema_length=0, 
+                                            try_parse_dates=False,
+                                            )
+            df_pl = df_lazy.select(columns_to_load).collect()
         except Exception as e:
             raise ValueError(f"Error loading CSV file: {e}")
 
