@@ -336,8 +336,8 @@ class TimeSeriesAnomalyDetector:
 
     def load_series_from_csv(self, file_path: str, target_col: str = 'Value') -> List[Dict[str, str]]:
         """
-        Loads time series from a large CSV using Polars for efficiency.
-        Groups data by WebId, Id, Name and adds them to the detector.
+        Load time series from a large CSV efficiently using Polars, clean the 'Value' and 'Timestamp' columns,
+        and group by ['WebId', 'Id', 'Name'] to create series for the detector.
 
         Args:
             file_path: Path to the CSV file.
@@ -351,19 +351,36 @@ class TimeSeriesAnomalyDetector:
         # Load only necessary columns
         columns_to_load = ['WebId', 'Id', 'Name', 'Timestamp', target_col]
 
+        schema = {
+        'WebId': pl.Utf8, # Asumimos Utf8 para IDs por seguridad
+        'Id': pl.Utf8,
+        'Name': pl.Utf8,
+        'Timestamp': pl.Utf8,
+        target_col: pl.Utf8
+        }
+
         try:
-            df_pl = pl.read_csv(file_path, columns=columns_to_load)
+            df_pl = pl.scan_csv(file_path, 
+                                            schema=schema, 
+                                            ).collect()
         except Exception as e:
             raise ValueError(f"Error loading CSV file: {e}")
 
-        # 2. Type Conversion (Polars)
-        # Ensure Timestamp type
+        # 2. Convert 'Value' to float, replace non-numeric with null (strict=False)
         df_pl = df_pl.with_columns(
-            pl.col("Timestamp").str.strptime(pl.Datetime, format="%Y-%m-%d %H:%M:%S").alias("Timestamp")
+            pl.col(target_col).cast(pl.Float64, strict=False)
         )
 
-        # 3. Grouping and Series Generation (Polars)
-        # Group by WebId, Id, Name
+        # 3. Robust timestamp parsing with ISO-8601 and variable decimal precision (and 'Z')
+        #     %Y-%m-%dT%H:%M:%S.%fZ handles microseconds (or none) and trailing Z 
+        df_pl = df_pl.with_columns(
+            pl.col('Timestamp').str.strptime(pl.Datetime, format="%Y-%m-%dT%H:%M:%S.%fZ", strict=False)
+        )
+
+        # 4. Drop rows where either Value or Timestamp is null
+        df_pl = df_pl.drop_nulls([target_col, 'Timestamp'])
+
+        # 5. Group by WebId, Id, Name and build time series for each unique group
         options_list = []
 
         # Get unique groups
@@ -374,8 +391,6 @@ class TimeSeriesAnomalyDetector:
 
             # 4. Metadata Generation and Pandas DataFrame
             series_name = f"{id_}_{name_}"
-
-            # Convert to Pandas DataFrame for compatibility with the rest of the class
             df_pd = group_df_pl.select(['Timestamp', target_col]).to_pandas()
             df_pd.set_index('Timestamp', inplace=True)
 

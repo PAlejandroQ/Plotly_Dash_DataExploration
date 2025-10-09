@@ -78,7 +78,7 @@ def generate_multi_series_csv():
                 'WebId': web_id,
                 'Id': id_,
                 'Name': name,
-                'Timestamp': timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                'Timestamp': timestamp.strftime('%Y-%m-%dT%H:%M:%S.%f') + 'Z',
                 'Value': round(value, 2)
             })
 
