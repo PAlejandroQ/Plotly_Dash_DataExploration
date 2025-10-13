@@ -92,7 +92,7 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
             title="Select at least one time series",
             xaxis_title="Time",
             yaxis_title="Value",
-            showlegend=True,
+            showlegend=False,
             height=400
         )
 
@@ -100,24 +100,6 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
         dbc.Col([
             dbc.Card(
                 dbc.CardBody([
-                    dbc.Row([
-                        dbc.Col(
-                            html.H5(f"Visualization Panel #{panel_id}", className="mb-0"),
-                            width="auto",
-                            align="center"
-                        ),
-                        dbc.Col(
-                            dbc.Button(
-                                "×",
-                                id={'type': 'delete-graph-button', 'index': panel_id},
-                                color="danger",
-                                size="sm",
-                                style={"fontSize": "18px", "padding": "0 8px"}
-                            ),
-                            width="auto",
-                            className="text-end"
-                        )
-                    ], justify="between", align="center", className="mb-3"),
                     dbc.Row([
                         dbc.Col([
                             dbc.Card(
@@ -139,6 +121,14 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
                                         value=selected_methods,
                                         labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px'},
                                         inputStyle={"margin-right": "5px"}
+                                    ),
+                                    html.Hr(className="my-3"),
+                                    dbc.Button(
+                                        "×",
+                                        id={'type': 'delete-graph-button', 'index': panel_id},
+                                        color="danger",
+                                        size="sm",
+                                        style={"fontSize": "18px", "padding": "0 8px"}
                                     )
                                 ]),
                                 className="h-100"
@@ -296,7 +286,7 @@ def update_individual_graph(selected_series, selected_methods, graph_id):
             title="Select at least one time series",
             xaxis_title="Time",
             yaxis_title="Value",
-            showlegend=True,
+            showlegend=False,
             height=400
         )
         return fig

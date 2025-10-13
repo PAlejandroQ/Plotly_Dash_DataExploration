@@ -246,7 +246,7 @@ class TimeSeriesAnomalyDetector:
             xaxis_title='Time',
             yaxis_title=target_col,
             hovermode='x unified',
-            showlegend=True
+            showlegend=False
         )
 
         return fig
@@ -318,7 +318,7 @@ class TimeSeriesAnomalyDetector:
                             symbol='x'
                         ),
                         legendgroup=series_name,
-                        showlegend=True
+                        showlegend=False
                     ))
 
         # Configure layout
@@ -328,7 +328,7 @@ class TimeSeriesAnomalyDetector:
             xaxis_title='Time',
             yaxis_title=target_col,
             hovermode='x unified',
-            showlegend=True,
+            showlegend=False,
             height=600
         )
 
