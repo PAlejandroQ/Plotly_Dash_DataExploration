@@ -5,6 +5,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from anomaly_detection import TimeSeriesAnomalyDetector
+import plotly.graph_objects as go
+import ast
 import uuid
 
 # Application configuration
@@ -63,16 +65,37 @@ def generate_fallback_options(detector):
 # Initialize detector and global options
 detector, series_options = initialize_detector_with_csv()
 
-def create_graph_panel(panel_id):
+def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
     """
     Creates a template for a dynamic graph panel.
 
     Args:
         panel_id: Unique ID for the panel
+        selected_series: List of selected series (optional)
+        selected_methods: List of selected methods (optional)
 
     Returns:
         A dbc.Row component with the complete panel
     """
+    # Default values if not provided
+    if selected_series is None:
+        selected_series = [series_options[0]['value']] if series_options else []
+    if selected_methods is None:
+        selected_methods = ['IF']
+
+    # Pre-compute initial figure so each panel renders without interaction
+    if selected_series:
+        initial_figure = detector.plot_multiple_series(selected_series, 'Value', selected_methods)
+    else:
+        initial_figure = go.Figure()
+        initial_figure.update_layout(
+            title="Select at least one time series",
+            xaxis_title="Time",
+            yaxis_title="Value",
+            showlegend=True,
+            height=400
+        )
+
     return dbc.Row([
         # Panel header with delete button
         dbc.Col([
@@ -96,9 +119,10 @@ def create_graph_panel(panel_id):
                             dcc.Checklist(
                                 id={'type': 'series-selector-checklist', 'index': panel_id},
                                 options=series_options,
-                                value=[series_options[0]['value']] if series_options else [],  # Default first series
+                                value=selected_series,  # Use provided values
                                 labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px'},
-                                inputStyle={"margin-right": "5px"}
+                                inputStyle={"margin-right": "5px"},
+                                style={"maxHeight": "150px", "overflowY": "auto"}  # Scrollbar for long lists
                             )
                         ], width=6),
                         dbc.Col([
@@ -108,7 +132,7 @@ def create_graph_panel(panel_id):
                                 options=[
                                     {'label': 'Isolation Forest', 'value': 'IF'}
                                 ],
-                                value=['IF'],
+                                value=selected_methods,  # Use provided values
                                 labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px'},
                                 inputStyle={"margin-right": "5px"}
                             )
@@ -125,7 +149,8 @@ def create_graph_panel(panel_id):
                             dcc.Graph(
                                 id={'type': 'anomalies-graph', 'index': panel_id},
                                 style={'height': '400px'},
-                                config={'displayModeBar': True, 'displaylogo': False}
+                                config={'displayModeBar': True, 'displaylogo': False},
+                                figure=initial_figure
                             )
                         ]
                     )
@@ -136,6 +161,7 @@ def create_graph_panel(panel_id):
 
 # Initial layout with one default panel
 initial_panel_id = str(uuid.uuid4())[:8]
+default_series = [series_options[0]['value']] if series_options else []
 
 app.layout = dbc.Container([
     dbc.Row([
@@ -145,41 +171,45 @@ app.layout = dbc.Container([
         ], width=12)
     ]),
 
+    # Store to manage panel states (series and methods selections)
     dcc.Store(id='graph-store', data=[{
         'id': initial_panel_id,
-        'series': [series_options[0]['value']] if series_options else [],
+        'series': default_series,
         'methods': ['IF']
     }]),
 
-    # Container for dynamic graphs (no height restrictions)
+    # Dynamic graph container
     html.Div(
         id='graph-container',
-        children=[create_graph_panel(initial_panel_id)],
+        children=[create_graph_panel(initial_panel_id, default_series, ['IF'])],
         style={"width": "100%"}
     ),
 
-    # Button to duplicate panels (outside any Row/Col that might collapse)
+    # Button to duplicate panels
     html.Div(
         dbc.Button(
             "➕ New Panel",
             id='add-graph-button',
             color="success",
             className="w-100",
-            style={"marginTop": "180px"} # Adjusted to position the button lower
+            style={"marginTop": "180px"}
         ),
         style={"marginBottom": "40px"}
     )
 ], fluid=True, className="p-4")
 
+# Callback to update panel selections in store
 @app.callback(
     [Output('graph-container', 'children'),
-     Output('graph-store', 'data')],
+     Output('graph-store', 'data', allow_duplicate=True)],
     [Input('add-graph-button', 'n_clicks'),
-     Input({'type': 'delete-graph-button', 'index': ALL}, 'n_clicks')],
+     Input({'type': 'delete-graph-button', 'index': ALL}, 'n_clicks'),
+     Input({'type': 'series-selector-checklist', 'index': ALL}, 'value'),
+     Input({'type': 'methods-selector-checklist', 'index': ALL}, 'value')],
     [State('graph-store', 'data')],
     prevent_initial_call=True
 )
-def manage_graph_panels(add_clicks, delete_clicks, current_panels):
+def manage_graph_panels(add_clicks, delete_clicks, series_values, methods_values, current_panels):
     """
     Callback to manage the creation and deletion of panels.
     """
@@ -187,38 +217,54 @@ def manage_graph_panels(add_clicks, delete_clicks, current_panels):
     if not ctx.triggered:
         return dash.no_update
 
-    trigger_id = ctx.triggered[0]['prop_id']
+    triggered = ctx.triggered[0]['prop_id']
+    raw_trigger = triggered.split('.')[0] if triggered else ''
+    if raw_trigger and raw_trigger.startswith('{'):
+        trigger_id = ast.literal_eval(raw_trigger)
+    else:
+        trigger_id = raw_trigger
+
+    # Normalize current state arrays
+    if current_panels is None:
+        current_panels = []
+    series_values = series_values or []
+    methods_values = methods_values or []
+
+    # Update stored selections for current panels
+    for idx, panel in enumerate(current_panels):
+        if idx < len(series_values):
+            panel['series'] = series_values[idx] or []
+        if idx < len(methods_values):
+            panel['methods'] = methods_values[idx] or []
 
     # Determine which action was performed
-    if 'add-graph-button' in trigger_id:
-        # Add new panel
+    if trigger_id == 'add-graph-button':
         new_panel_id = str(uuid.uuid4())[:8]
         current_panels.append({
             'id': new_panel_id,
-            'series': [series_options[0]['value']] if series_options else [],
+            'series': default_series.copy(),
             'methods': ['IF']
         })
-    else:
-        # Delete specific panel
-        # Find which delete button was clicked
-        for i, click_count in enumerate(delete_clicks):
-            if click_count and click_count > 0:
-                # This is the panel to delete
-                if i < len(current_panels):
-                    current_panels.pop(i)
-                break
+    elif isinstance(trigger_id, dict) and trigger_id.get('type') == 'delete-graph-button':
+        delete_index = trigger_id['index']
+        current_panels = [panel for panel in current_panels if panel['id'] != delete_index]
 
     # Ensure at least one panel exists
     if not current_panels:
         new_panel_id = str(uuid.uuid4())[:8]
         current_panels = [{
             'id': new_panel_id,
-            'series': [series_options[0]['value']] if series_options else [],
+            'series': default_series.copy(),
             'methods': ['IF']
         }]
 
-    # Create components for all panels
-    panel_components = [create_graph_panel(panel['id']) for panel in current_panels]
+    # Create components for all panels using their current state
+    panel_components = []
+    for panel in current_panels:
+        panel_id = panel['id']
+        selected_series = panel.get('series', []) or default_series.copy()
+        selected_methods = panel.get('methods', ['IF']) or ['IF']
+        panel_components.append(create_graph_panel(panel_id, selected_series, selected_methods))
 
     return panel_components, current_panels
 

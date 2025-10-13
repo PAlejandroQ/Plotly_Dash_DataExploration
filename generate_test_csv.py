@@ -24,11 +24,21 @@ def generate_multi_series_csv():
 
     # Define different series
     series_config = [
-        {'web_id': 'WEB001', 'id': 'TEMP001', 'name': 'Temperature_Sensor_A'},
-        {'web_id': 'WEB002', 'id': 'TEMP002', 'name': 'Temperature_Sensor_B'},
-        {'web_id': 'WEB003', 'id': 'PRESS001', 'name': 'Pressure_Sensor_A'},
-        {'web_id': 'WEB004', 'id': 'PRESS002', 'name': 'Pressure_Sensor_B'},
-        {'web_id': 'WEB005', 'id': 'FLOW001', 'name': 'Flow_Rate_Sensor'},
+        {'web_id': 'TEMP001', 'id': 'TEMP001', 'name': 'Temperature_Sensor_A'},
+        {'web_id': 'TEMP002', 'id': 'TEMP002', 'name': 'Temperature_Sensor_B'},
+        {'web_id': 'TEMP003', 'id': 'TEMP003', 'name': 'Temperature_Sensor_C'},
+        {'web_id': 'TEMP004', 'id': 'TEMP004', 'name': 'Temperature_Sensor_D'},
+        {'web_id': 'PRESS001', 'id': 'PRESS001', 'name': 'Pressure_Sensor_A'},
+        {'web_id': 'PRESS002', 'id': 'PRESS002', 'name': 'Pressure_Sensor_B'},
+        {'web_id': 'PRESS003', 'id': 'PRESS003', 'name': 'Pressure_Sensor_C'},
+        {'web_id': 'PRESS004', 'id': 'PRESS004', 'name': 'Pressure_Sensor_D'},
+        {'web_id': 'FLOW001', 'id': 'FLOW001', 'name': 'Flow_Rate_Sensor_A'},
+        {'web_id': 'FLOW002', 'id': 'FLOW002', 'name': 'Flow_Rate_Sensor_B'},
+        {'web_id': 'FLOW003', 'id': 'FLOW003', 'name': 'Flow_Rate_Sensor_C'},
+        {'web_id': 'VIB001', 'id': 'VIB001', 'name': 'Vibration_Sensor_A'},
+        {'web_id': 'VIB002', 'id': 'VIB002', 'name': 'Vibration_Sensor_B'},
+        {'web_id': 'PH001', 'id': 'PH001', 'name': 'PH_Sensor_A'},
+        {'web_id': 'PH002', 'id': 'PH002', 'name': 'PH_Sensor_B'}
     ]
 
     all_data = []
