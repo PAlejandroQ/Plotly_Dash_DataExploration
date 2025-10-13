@@ -97,65 +97,72 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
         )
 
     return dbc.Row([
-        # Panel header with delete button
         dbc.Col([
-            dbc.Card([
-                dbc.CardHeader([
-                    html.H5(f"Visualization Panel #{panel_id}", className="d-inline-block me-2"),
-                    dbc.Button(
-                        "×",
-                        id={'type': 'delete-graph-button', 'index': panel_id},
-                        color="danger",
-                        size="sm",
-                        className="float-end",
-                        style={"fontSize": "18px", "padding": "0 8px"}
-                    )
-                ]),
+            dbc.Card(
                 dbc.CardBody([
-                    # Panel controls
+                    dbc.Row([
+                        dbc.Col(
+                            html.H5(f"Visualization Panel #{panel_id}", className="mb-0"),
+                            width="auto",
+                            align="center"
+                        ),
+                        dbc.Col(
+                            dbc.Button(
+                                "×",
+                                id={'type': 'delete-graph-button', 'index': panel_id},
+                                color="danger",
+                                size="sm",
+                                style={"fontSize": "18px", "padding": "0 8px"}
+                            ),
+                            width="auto",
+                            className="text-end"
+                        )
+                    ], justify="between", align="center", className="mb-3"),
                     dbc.Row([
                         dbc.Col([
-                            html.H6("Time Series"),
-                            dcc.Checklist(
-                                id={'type': 'series-selector-checklist', 'index': panel_id},
-                                options=series_options,
-                                value=selected_series,  # Use provided values
-                                labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px'},
-                                inputStyle={"margin-right": "5px"},
-                                style={"maxHeight": "150px", "overflowY": "auto"}  # Scrollbar for long lists
+                            dbc.Card(
+                                dbc.CardBody([
+                                    html.H6("Time Series", className="fw-bold"),
+                                    dcc.Checklist(
+                                        id={'type': 'series-selector-checklist', 'index': panel_id},
+                                        options=series_options,
+                                        value=selected_series,
+                                        labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px'},
+                                        inputStyle={"margin-right": "5px"},
+                                        style={"maxHeight": "220px", "overflowY": "auto"}
+                                    ),
+                                    html.Hr(className="my-3"),
+                                    html.H6("Detection Methods", className="fw-bold"),
+                                    dcc.Checklist(
+                                        id={'type': 'methods-selector-checklist', 'index': panel_id},
+                                        options=[{'label': 'Isolation Forest', 'value': 'IF'}],
+                                        value=selected_methods,
+                                        labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px'},
+                                        inputStyle={"margin-right": "5px"}
+                                    )
+                                ]),
+                                className="h-100"
                             )
-                        ], width=6),
+                        ], width=3),
                         dbc.Col([
-                            html.H6("Detection Methods"),
-                            dcc.Checklist(
-                                id={'type': 'methods-selector-checklist', 'index': panel_id},
-                                options=[
-                                    {'label': 'Isolation Forest', 'value': 'IF'}
-                                ],
-                                value=selected_methods,  # Use provided values
-                                labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px'},
-                                inputStyle={"margin-right": "5px"}
+                            dcc.Loading(
+                                id={'type': 'loading-plot', 'index': panel_id},
+                                type="default",
+                                children=[
+                                    dcc.Graph(
+                                        id={'type': 'anomalies-graph', 'index': panel_id},
+                                        style={'height': '100%', 'width': '100%'},
+                                        config={'displayModeBar': True, 'displaylogo': False},
+                                        figure=initial_figure
+                                    )
+                                ]
                             )
-                        ], width=6)
-                    ]),
-
-                    html.Hr(),
-
-                    # Graph area
-                    dcc.Loading(
-                        id={'type': 'loading-plot', 'index': panel_id},
-                        type="default",
-                        children=[
-                            dcc.Graph(
-                                id={'type': 'anomalies-graph', 'index': panel_id},
-                                style={'height': '400px'},
-                                config={'displayModeBar': True, 'displaylogo': False},
-                                figure=initial_figure
-                            )
-                        ]
-                    )
-                ])
-            ], className="mb-4")
+                        ], width=8)
+                    ], className="g-3", align="stretch")
+                ]),
+                className="mb-4",
+                style={"height": "100%", "overflow": "hidden"}
+            )
         ], width=12)
     ])
 
