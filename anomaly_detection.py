@@ -252,7 +252,7 @@ class TimeSeriesAnomalyDetector:
         return fig
 
     def plot_multiple_series(self, series_names: List[str], target_col: str,
-                           methods_to_plot: List[str]) -> go.Figure:
+                           methods_to_plot: List[str], start_date=None, end_date=None) -> go.Figure:
         """
         Creates an interactive combined visualization of multiple time series with detected anomalies.
 
@@ -260,6 +260,8 @@ class TimeSeriesAnomalyDetector:
             series_names: List of names of the series to visualize
             target_col: Name of the target column
             methods_to_plot: List of methods whose anomalies to show
+            start_date: Optional start date to filter the data
+            end_date: Optional end date to filter the data
 
         Returns:
             Plotly figure with the combined visualization
@@ -278,6 +280,11 @@ class TimeSeriesAnomalyDetector:
 
             df = self.dataframes[series_name]
             results = self.results.get(series_name, pd.DataFrame())
+
+            # Filter by date range if provided
+            if start_date is not None and end_date is not None:
+                df = df[(df.index >= start_date) & (df.index <= end_date)]
+                results = results[(results.index >= start_date) & (results.index <= end_date)]
 
             # Color for this series
             color_idx = i % len(series_colors)
