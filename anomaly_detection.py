@@ -418,3 +418,81 @@ class TimeSeriesAnomalyDetector:
             })
 
         return options_list
+
+    def load_series_from_parquet(self, folder_path: str, target_col: str = 'Value') -> List[Dict[str, str]]:
+        """
+        Load time series from Parquet files in a folder. Each Parquet file contains one time series,
+        and the TAG name is the filename without extension.
+
+        Args:
+            folder_path: Path to the folder containing Parquet files.
+            target_col: Name of the value column (default 'Value').
+
+        Returns:
+            A list of dictionaries with options for the Dash selector.
+            Format: [{'label': 'filename', 'value': 'filename'}, ...]
+        """
+        import os
+
+        options_list = []
+        parquet_files = [f for f in os.listdir(folder_path) if f.endswith('.parquet')]
+
+        for filename in parquet_files:
+            parquet_path = os.path.join(folder_path, filename)
+            series_name = os.path.splitext(filename)[0]  # Remove .parquet extension
+
+            try:
+                # Read Parquet file using Polars
+                df_pl = pl.read_parquet(parquet_path)
+
+                # Check if required columns exist
+                if 'Timestamp' not in df_pl.columns or target_col not in df_pl.columns:
+                    print(f"Warning: File '{filename}' missing required columns (Timestamp, {target_col}). Skipping...")
+                    continue
+
+                # Convert Timestamp to datetime if needed
+                if df_pl['Timestamp'].dtype != pl.Datetime:
+                    try:
+                        df_pl = df_pl.with_columns(
+                            pl.col('Timestamp').str.strptime(pl.Datetime, format="%Y-%m-%dT%H:%M:%S%.fZ", strict=False)
+                        )
+                    except:
+                        try:
+                            df_pl = df_pl.with_columns(
+                                pl.col('Timestamp').str.strptime(pl.Datetime, strict=False)
+                            )
+                        except Exception as e:
+                            print(f"Warning: Could not parse Timestamp in '{filename}': {e}. Skipping...")
+                            continue
+
+                # Convert Value to float
+                df_pl = df_pl.with_columns(
+                    pl.col(target_col).cast(pl.Float64, strict=False)
+                )
+
+                # Drop rows with null Timestamp or Value
+                df_pl = df_pl.drop_nulls(['Timestamp', target_col])
+
+                if len(df_pl) == 0:
+                    print(f"Warning: File '{filename}' has no valid data after cleaning. Skipping...")
+                    continue
+
+                # Convert to pandas DataFrame with datetime index
+                df_pd = df_pl.select(['Timestamp', target_col]).to_pandas()
+                df_pd.set_index('Timestamp', inplace=True)
+
+                # Add the series using the existing method
+                self.add_series(series_name, df_pd)
+
+                # Add to options list
+                options_list.append({
+                    'label': series_name,
+                    'value': series_name
+                })
+
+                print(f"Successfully loaded series '{series_name}' from '{filename}' ({len(df_pd)} records)")
+
+            except Exception as e:
+                print(f"Error loading '{filename}': {e}. Skipping...")
+
+        return options_list

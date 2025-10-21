@@ -8,42 +8,66 @@ from anomaly_detection import TimeSeriesAnomalyDetector
 import plotly.graph_objects as go
 import ast
 import uuid
+import os
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Application configuration
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
-app.title = "FILE LABEL"
+app.title = "FIELD LABEL"
 
-def initialize_detector_with_csv():
+def initialize_detector():
     """
-    Initializes the detector by loading data from CSV using Polars.
+    Initializes the detector by loading data from either CSV or Parquet files based on environment configuration.
     """
     detector = TimeSeriesAnomalyDetector()
 
-    # Load data from CSV with multiple series
-    csv_path = 'csv_to_dash/multi_series_test.csv'
-    try:
-        series_options = detector.load_series_from_csv(csv_path, target_col='Value')
-        print(f"Loaded {len(series_options)} series from CSV")
-        for option in series_options:
-            print(f"  - {option['label']} (WebId: {option['value']})")
-    except Exception as e:
-        print(f"Error loading CSV: {e}")
-        print("Generating fallback data...")
-        # Fallback to synthetic data if CSV loading fails
-        series_options = generate_fallback_options(detector)
+    # Get configuration from environment variables
+    data_source = os.getenv('DATA_SOURCE', 'PARQUET').upper()
+    parquet_folder = os.getenv('PARQUET_FOLDER', 'parquets')
+    csv_file = os.getenv('CSV_FILE', 'csv_to_dash/multi_series_test.csv')
+
+    series_options = []
+
+    if data_source == 'PARQUET':
+        print("Loading data from Parquet files...")
+        try:
+            series_options = detector.load_series_from_parquet(parquet_folder, target_col='Value')
+            print(f"Loaded {len(series_options)} series from Parquet files")
+            for option in series_options:
+                print(f"  - {option['label']}")
+        except Exception as e:
+            print(f"Error loading Parquet files: {e}")
+            print("Falling back to CSV...")
+            data_source = 'CSV'
+
+    if data_source == 'CSV':
+        print("Loading data from CSV file...")
+        try:
+            series_options = detector.load_series_from_csv(csv_file, target_col='Value')
+            print(f"Loaded {len(series_options)} series from CSV")
+            for option in series_options:
+                print(f"  - {option['label']} (WebId: {option['value']})")
+        except Exception as e:
+            print(f"Error loading CSV: {e}")
+            print("Generating fallback data...")
+            # Fallback to synthetic data if both sources fail
+            series_options = generate_fallback_options(detector)
 
     # Apply Isolation Forest to all loaded series
-    for series_name in detector.dataframes.keys():
-        try:
-            detector.apply_isolation_forest(
-                series_name=series_name,
-                target_col='Value',
-                n_estimators=100,
-                contamination=0.01  # 1% expected anomalies
-            )
-            print(f"Applied Isolation Forest to {series_name}")
-        except Exception as e:
-            print(f"Error processing {series_name}: {e}")
+    # for series_name in detector.dataframes.keys():
+    #     try:
+    #         detector.apply_isolation_forest(
+    #             series_name=series_name,
+    #             target_col='Value',
+    #             n_estimators=100,
+    #             contamination=0.01  # 1% expected anomalies
+    #         )
+    #         print(f"Applied Isolation Forest to {series_name}")
+    #     except Exception as e:
+    #         print(f"Error processing {series_name}: {e}")
 
     return detector, series_options
 
@@ -63,7 +87,7 @@ def generate_fallback_options(detector):
     return [{'label': 'Fallback_Series', 'value': 'FALLBACK001'}]
 
 # Initialize detector and global options
-detector, series_options = initialize_detector_with_csv()
+detector, series_options = initialize_detector()
 
 def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
     """
@@ -163,7 +187,7 @@ default_series = [series_options[0]['value']] if series_options else []
 app.layout = dbc.Container([
     dbc.Row([
         dbc.Col([
-            html.H1("FILE LABEL", className="text-center my-4", style={"color": "#2c3e50"}),
+            html.H1("FIELD LABEL", className="text-center my-4", style={"color": "#2c3e50"}),
             html.Hr()
         ], width=12)
     ]),
