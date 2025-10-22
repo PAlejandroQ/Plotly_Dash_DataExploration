@@ -69,7 +69,20 @@ def initialize_detector():
     #     except Exception as e:
     #         print(f"Error processing {series_name}: {e}")
 
-    return detector, series_options
+    # Calculate global date range for slider
+    global_min_date = None
+    global_max_date = None
+    if detector.dataframes:
+        for df in detector.dataframes.values():
+            if len(df) > 0:
+                series_min = df.index.min()
+                series_max = df.index.max()
+                if global_min_date is None or series_min < global_min_date:
+                    global_min_date = series_min
+                if global_max_date is None or series_max > global_max_date:
+                    global_max_date = series_max
+
+    return detector, series_options, global_min_date, global_max_date
 
 def generate_fallback_options(detector):
     """
@@ -87,7 +100,7 @@ def generate_fallback_options(detector):
     return [{'label': 'Fallback_Series', 'value': 'FALLBACK001'}]
 
 # Initialize detector and global options
-detector, series_options = initialize_detector()
+detector, series_options, global_min_date, global_max_date = initialize_detector()
 
 def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
     """
@@ -107,21 +120,6 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
     if selected_methods is None:
         selected_methods = ['IF']
 
-    # Calculate date range for slider
-    min_date = None
-    max_date = None
-    if selected_series:
-        for series in selected_series:
-            if series in detector.dataframes:
-                df = detector.dataframes[series]
-                if len(df) > 0:
-                    series_min = df.index.min()
-                    series_max = df.index.max()
-                    if min_date is None or series_min < min_date:
-                        min_date = series_min
-                    if max_date is None or series_max > max_date:
-                        max_date = series_max
-
     # Pre-compute initial figure so each panel renders without interaction
     if selected_series:
         initial_figure = detector.plot_multiple_series(selected_series, 'Value', selected_methods)
@@ -134,22 +132,6 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
             showlegend=False,
             height=400
         )
-
-    # Configure slider
-    slider_marks = {}
-    if min_date and max_date:
-        slider_min = min_date.timestamp()
-        slider_max = max_date.timestamp()
-        slider_value = [slider_min, slider_max]
-        # Add marks for start and end dates
-        slider_marks = {
-            slider_min: min_date.strftime('%Y-%m-%d'),
-            slider_max: max_date.strftime('%Y-%m-%d')
-        }
-    else:
-        slider_min = 0
-        slider_max = 1
-        slider_value = [0, 1]
 
     return dbc.Row([
         dbc.Col([
@@ -203,23 +185,7 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
                                 ]
                             )
                         ], width=8)
-                    ], className="g-3", align="stretch"),
-                    # Time range slider at the bottom
-                    dbc.Row([
-                        dbc.Col([
-                            html.H6("Time Range", className="fw-bold"),
-                            dcc.RangeSlider(
-                                id={'type': 'range-slider', 'index': panel_id},
-                                min=slider_min,
-                                max=slider_max,
-                                value=slider_value,
-                                marks=slider_marks,
-                                step=86400,  # 1 day in seconds
-                                allowCross=False,
-                                tooltip={"placement": "bottom", "always_visible": True}
-                            )
-                        ], width=12)
-                    ], className="mt-3")
+                    ], className="g-3", align="stretch")
                 ]),
                 className="mb-4",
                 style={"height": "100%", "overflow": "hidden"}
@@ -231,12 +197,47 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
 initial_panel_id = str(uuid.uuid4())[:8]
 default_series = [series_options[0]['value']] if series_options else []
 
+# Configure global slider
+global_slider_marks = {}
+if global_min_date and global_max_date:
+    global_slider_min = global_min_date.timestamp()
+    global_slider_max = global_max_date.timestamp()
+    global_slider_value = [global_slider_min, global_slider_max]
+    # Add marks for start and end dates, plus intermediate
+    import pandas as pd
+    global_slider_marks = {global_slider_min: global_min_date.strftime('%Y-%m-%d'), global_slider_max: global_max_date.strftime('%Y-%m-%d')}
+    # Add monthly marks
+    date_range = pd.date_range(start=global_min_date, end=global_max_date, freq='M')
+    for d in date_range:
+        if d != global_min_date and d != global_max_date:
+            global_slider_marks[d.timestamp()] = d.strftime('%b %Y')
+else:
+    global_slider_min = 0
+    global_slider_max = 1
+    global_slider_value = [0, 1]
+
 app.layout = dbc.Container([
     dbc.Row([
         dbc.Col([
             html.H1("FIELD LABEL", className="text-center my-4", style={"color": "#2c3e50"}),
             html.Hr()
         ], width=12)
+    ]),
+    # Global time range slider
+    dbc.Row([
+        dbc.Col([
+            html.H5("Global Time Range", className="fw-bold"),
+            dcc.RangeSlider(
+                id='global-range-slider',
+                min=global_slider_min,
+                max=global_slider_max,
+                value=global_slider_value,
+                marks=global_slider_marks,
+                step=86400,  # 1 day in seconds
+                allowCross=False,
+                tooltip={"placement": "bottom"}
+            )
+        ], width=12, className="mb-4")
     ]),
 
     # Store to manage panel states (series and methods selections)
@@ -340,11 +341,11 @@ def manage_graph_panels(add_clicks, delete_clicks, series_values, methods_values
     Output({'type': 'anomalies-graph', 'index': MATCH}, 'figure'),
     [Input({'type': 'series-selector-checklist', 'index': MATCH}, 'value'),
      Input({'type': 'methods-selector-checklist', 'index': MATCH}, 'value'),
-     Input({'type': 'range-slider', 'index': MATCH}, 'value')],
+     Input('global-range-slider', 'value')],
     [State({'type': 'anomalies-graph', 'index': MATCH}, 'id')],
     prevent_initial_call=True
 )
-def update_individual_graph(selected_series, selected_methods, slider_value, graph_id):
+def update_individual_graph(selected_series, selected_methods, global_slider_value, graph_id):
     """
     Callback to update individual graphs using MATCH pattern.
     """
@@ -363,12 +364,12 @@ def update_individual_graph(selected_series, selected_methods, slider_value, gra
         )
         return fig
 
-    # Convert slider values to datetime
+    # Convert global slider values to datetime
     start_date = None
     end_date = None
-    if slider_value and len(slider_value) == 2:
-        start_date = datetime.fromtimestamp(slider_value[0])
-        end_date = datetime.fromtimestamp(slider_value[1])
+    if global_slider_value and len(global_slider_value) == 2:
+        start_date = datetime.fromtimestamp(global_slider_value[0])
+        end_date = datetime.fromtimestamp(global_slider_value[1])
 
     # Create graph for this specific panel
     return detector.plot_multiple_series(selected_series, 'Value', selected_methods, start_date, end_date)
