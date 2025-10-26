@@ -102,6 +102,12 @@ def generate_fallback_options(detector):
 # Initialize detector and global options
 detector, series_options, global_min_date, global_max_date = initialize_detector()
 
+# Global variables to be updated when reloading data
+global_detector = detector
+global_series_options = series_options
+global_min_date = global_min_date
+global_max_date = global_max_date
+
 def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
     """
     Creates a template for a dynamic graph panel.
@@ -116,13 +122,13 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
     """
     # Default values if not provided
     if selected_series is None:
-        selected_series = [series_options[0]['value']] if series_options else []
+        selected_series = [global_series_options[0]['value']] if global_series_options else []
     if selected_methods is None:
         selected_methods = ['IF']
 
     # Pre-compute initial figure so each panel renders without interaction
-    if selected_series:
-        initial_figure = detector.plot_multiple_series(selected_series, 'Value', selected_methods)
+    if selected_series and global_detector:
+        initial_figure = global_detector.plot_multiple_series(selected_series, 'Value', selected_methods)
     else:
         initial_figure = go.Figure()
         initial_figure.update_layout(
@@ -144,7 +150,7 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
                                     html.H6("Time Series", className="fw-bold"),
                                     dcc.Checklist(
                                         id={'type': 'series-selector-checklist', 'index': panel_id},
-                                        options=series_options,
+                                        options=global_series_options,
                                         value=selected_series,
                                         labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px'},
                                         inputStyle={"margin-right": "5px"},
@@ -195,26 +201,32 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
 
 # Initial layout with one default panel
 initial_panel_id = str(uuid.uuid4())[:8]
-default_series = [series_options[0]['value']] if series_options else []
+default_series = [global_series_options[0]['value']] if global_series_options else []
 
-# Configure global slider
-global_slider_marks = {}
-if global_min_date and global_max_date:
-    global_slider_min = global_min_date.timestamp()
-    global_slider_max = global_max_date.timestamp()
-    global_slider_value = [global_slider_min, global_slider_max]
-    # Add marks for start and end dates, plus intermediate
-    import pandas as pd
-    global_slider_marks = {global_slider_min: global_min_date.strftime('%Y-%m-%d'), global_slider_max: global_max_date.strftime('%Y-%m-%d')}
-    # Add monthly marks
-    date_range = pd.date_range(start=global_min_date, end=global_max_date, freq='M')
-    for d in date_range:
-        if d != global_min_date and d != global_max_date:
-            global_slider_marks[d.timestamp()] = d.strftime('%b %Y')
-else:
-    global_slider_min = 0
-    global_slider_max = 1
-    global_slider_value = [0, 1]
+def configure_global_slider(min_date, max_date):
+    """Configure slider parameters based on date range."""
+    global_slider_marks = {}
+    if min_date and max_date:
+        global_slider_min = min_date.timestamp()
+        global_slider_max = max_date.timestamp()
+        global_slider_value = [global_slider_min, global_slider_max]
+        # Add marks for start and end dates, plus intermediate
+        import pandas as pd
+        global_slider_marks = {global_slider_min: min_date.strftime('%Y-%m-%d'), global_slider_max: max_date.strftime('%Y-%m-%d')}
+        # Add monthly marks
+        date_range = pd.date_range(start=min_date, end=max_date, freq='M')
+        for d in date_range:
+            if d != min_date and d != max_date:
+                global_slider_marks[d.timestamp()] = d.strftime('%b %Y')
+    else:
+        global_slider_min = 0
+        global_slider_max = 1
+        global_slider_value = [0, 1]
+
+    return global_slider_min, global_slider_max, global_slider_value, global_slider_marks
+
+# Configure initial global slider
+global_slider_min, global_slider_max, global_slider_value, global_slider_marks = configure_global_slider(global_min_date, global_max_date)
 
 app.layout = dbc.Container([
     dbc.Row([
@@ -222,6 +234,21 @@ app.layout = dbc.Container([
             html.H1("FIELD LABEL", className="text-center my-4", style={"color": "#2c3e50"}),
             html.Hr()
         ], width=12)
+    ]),
+    # Parquet folder input with apply button
+    dbc.Row([
+        dbc.Col([
+            dbc.InputGroup([
+                dbc.InputGroupText("Parquet Folder:"),
+                dbc.Input(
+                    id='parquet-folder-input',
+                    type='text',
+                    value=os.getenv('PARQUET_FOLDER', 'parquets'),
+                    placeholder="Enter parquet folder path"
+                ),
+                dbc.Button("Apply", id='apply-folder-button', color="primary", className="ms-2")
+            ]),
+        ], width=12, className="mb-3")
     ]),
     # Global time range slider
     dbc.Row([
@@ -266,6 +293,75 @@ app.layout = dbc.Container([
         style={"marginBottom": "40px"}
     )
 ], fluid=True, className="p-4")
+
+# Callback to reload data from new parquet folder
+@app.callback(
+    [Output('global-range-slider', 'min'),
+     Output('global-range-slider', 'max'),
+     Output('global-range-slider', 'value'),
+     Output('global-range-slider', 'marks'),
+     Output({'type': 'series-selector-checklist', 'index': ALL}, 'options'),
+     Output({'type': 'series-selector-checklist', 'index': ALL}, 'value')],
+    [Input('apply-folder-button', 'n_clicks')],
+    [State('parquet-folder-input', 'value'),
+     State({'type': 'series-selector-checklist', 'index': ALL}, 'id'),
+     State({'type': 'series-selector-checklist', 'index': ALL}, 'value')],
+    prevent_initial_call=True
+)
+def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_values):
+    """Reload data from the specified parquet folder."""
+    global global_detector, global_series_options, global_min_date, global_max_date
+
+    if not parquet_folder or parquet_folder.strip() == "":
+        # If empty, reload with default
+        parquet_folder = os.getenv('PARQUET_FOLDER', 'parquets')
+
+    try:
+        # Temporarily override environment variable
+        original_parquet_folder = os.environ.get('PARQUET_FOLDER')
+        os.environ['PARQUET_FOLDER'] = parquet_folder.strip()
+
+        # Reload data
+        new_detector, new_series_options, new_min_date, new_max_date = initialize_detector()
+
+        # Update global variables
+        global_detector = new_detector
+        global_series_options = new_series_options
+        global_min_date = new_min_date
+        global_max_date = new_max_date
+
+        # Configure new slider parameters
+        slider_min, slider_max, slider_value, slider_marks = configure_global_slider(new_min_date, new_max_date)
+
+        # Update series options for all checklists
+        series_options_list = [new_series_options] * len(checklist_ids)
+
+        # Update selected values to ensure they exist in new options
+        updated_values = []
+        for values in checklist_values:
+            if values:
+                # Keep only values that exist in new options
+                valid_values = [v for v in values if any(opt['value'] == v for opt in new_series_options)]
+                if not valid_values and new_series_options:
+                    # If no valid values, select first available
+                    valid_values = [new_series_options[0]['value']]
+                updated_values.append(valid_values)
+            else:
+                # If no values selected, select first available
+                updated_values.append([new_series_options[0]['value']] if new_series_options else [])
+
+        # Restore original environment variable
+        if original_parquet_folder is not None:
+            os.environ['PARQUET_FOLDER'] = original_parquet_folder
+        elif 'PARQUET_FOLDER' in os.environ:
+            del os.environ['PARQUET_FOLDER']
+
+        return slider_min, slider_max, slider_value, slider_marks, series_options_list, updated_values
+
+    except Exception as e:
+        print(f"Error reloading data: {e}")
+        # Return no updates on error
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
 
 # Callback to update panel selections in store
 @app.callback(
@@ -372,7 +468,7 @@ def update_individual_graph(selected_series, selected_methods, global_slider_val
         end_date = datetime.fromtimestamp(global_slider_value[1])
 
     # Create graph for this specific panel
-    return detector.plot_multiple_series(selected_series, 'Value', selected_methods, start_date, end_date)
+    return global_detector.plot_multiple_series(selected_series, 'Value', selected_methods, start_date, end_date)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8050)
