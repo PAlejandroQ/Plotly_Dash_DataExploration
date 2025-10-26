@@ -366,15 +366,20 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
 # Callback to update panel selections in store
 @app.callback(
     [Output('graph-container', 'children'),
-     Output('graph-store', 'data', allow_duplicate=True)],
+     Output('graph-store', 'data', allow_duplicate=True),
+     Output('global-range-slider', 'min', allow_duplicate=True),
+     Output('global-range-slider', 'max', allow_duplicate=True),
+     Output('global-range-slider', 'value', allow_duplicate=True),
+     Output('global-range-slider', 'marks', allow_duplicate=True)],
     [Input('add-graph-button', 'n_clicks'),
      Input({'type': 'delete-graph-button', 'index': ALL}, 'n_clicks'),
      Input({'type': 'series-selector-checklist', 'index': ALL}, 'value'),
      Input({'type': 'methods-selector-checklist', 'index': ALL}, 'value')],
-    [State('graph-store', 'data')],
+    [State('graph-store', 'data'),
+     State('global-range-slider', 'value')],
     prevent_initial_call=True
 )
-def manage_graph_panels(add_clicks, delete_clicks, series_values, methods_values, current_panels):
+def manage_graph_panels(add_clicks, delete_clicks, series_values, methods_values, current_panels, current_slider_value):
     """
     Callback to manage the creation and deletion of panels.
     """
@@ -431,7 +436,46 @@ def manage_graph_panels(add_clicks, delete_clicks, series_values, methods_values
         selected_methods = panel.get('methods', ['IF']) or ['IF']
         panel_components.append(create_graph_panel(panel_id, selected_series, selected_methods))
 
-    return panel_components, current_panels
+    # Calculate new slider range based on currently selected series across all panels
+    active_min_date = None
+    active_max_date = None
+
+    # Collect all selected series across all panels
+    all_selected_series = set()
+    for idx, panel in enumerate(current_panels):
+        panel_series = series_values[idx] if idx < len(series_values) else panel.get('series', [])
+        all_selected_series.update(panel_series)
+
+    # Calculate range based only on selected series
+    for series_name in all_selected_series:
+        if series_name in global_detector.dataframes:
+            df = global_detector.dataframes[series_name]
+            if len(df) > 0:
+                series_min = df.index.min()
+                series_max = df.index.max()
+                if active_min_date is None or series_min < active_min_date:
+                    active_min_date = series_min
+                if active_max_date is None or series_max > active_max_date:
+                    active_max_date = series_max
+
+    # Configure slider based on active series range
+    if active_min_date and active_max_date:
+        slider_min, slider_max, slider_value, slider_marks = configure_global_slider(active_min_date, active_max_date)
+        # Preserve current slider position if it's within the new range
+        if current_slider_value and len(current_slider_value) == 2:
+            preserved_value = [
+                max(slider_min, min(current_slider_value[0], slider_max)),
+                min(slider_max, max(current_slider_value[1], slider_min))
+            ]
+            slider_value = preserved_value
+    else:
+        # No series selected, use minimal range
+        slider_min = 0
+        slider_max = 1
+        slider_value = [0, 1]
+        slider_marks = {}
+
+    return panel_components, current_panels, slider_min, slider_max, slider_value, slider_marks
 
 @app.callback(
     Output({'type': 'anomalies-graph', 'index': MATCH}, 'figure'),
