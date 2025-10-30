@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import ast
 import uuid
 import os
+import json
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -17,6 +18,46 @@ load_dotenv()
 # Application configuration
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "FIELD LABEL"
+
+# Load metadata descriptions
+def load_metadata_descriptions():
+    """Load descriptions from metadata.json file."""
+    descriptions = {}
+    try:
+        # Try to load from the parquet folder first
+        parquet_folder = os.getenv('PARQUET_FOLDER', 'parquets')
+        metadata_path = os.path.join(parquet_folder, 'metadata.json')
+        if os.path.exists(metadata_path):
+            with open(metadata_path, 'r', encoding='utf-8') as f:
+                metadata = json.load(f)
+                for key, value in metadata.items():
+                    if isinstance(value, list) and len(value) > 0:
+                        descriptions[key] = value[0].get('description', key)
+                    else:
+                        descriptions[key] = key
+        else:
+            # Fallback: try different common locations
+            possible_paths = [
+                'parquets/POCO_MRO_003/metadata.json',
+                'parquets/metadata.json',
+                'metadata.json'
+            ]
+            for path in possible_paths:
+                if os.path.exists(path):
+                    with open(path, 'r', encoding='utf-8') as f:
+                        metadata = json.load(f)
+                        for key, value in metadata.items():
+                            if isinstance(value, list) and len(value) > 0:
+                                descriptions[key] = value[0].get('description', key)
+                            else:
+                                descriptions[key] = key
+                    break
+    except Exception as e:
+        print(f"Warning: Could not load metadata descriptions: {e}")
+        # Create fallback descriptions using the series names
+        descriptions = {}
+
+    return descriptions
 
 def initialize_detector():
     """
@@ -102,6 +143,9 @@ def generate_fallback_options(detector):
 # Initialize detector and global options
 detector, series_options, global_min_date, global_max_date = initialize_detector()
 
+# Load metadata descriptions
+metadata_descriptions = load_metadata_descriptions()
+
 # Global variables to be updated when reloading data
 global_detector = detector
 global_series_options = series_options
@@ -139,6 +183,40 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
             height=400
         )
 
+    # Create checklist options with tooltips
+    checklist_items = []
+    tooltips = []
+
+    for option in global_series_options:
+        # Create a unique ID for each checkbox item
+        item_id = f"checkbox-{panel_id}-{option['value']}"
+
+        # Create the checkbox item with custom styling
+        item = html.Div([
+            html.Div([
+                dcc.Checklist(
+                    id={'type': 'individual-checkbox', 'panel': panel_id, 'series': option['value']},
+                    options=[{'label': option['label'], 'value': option['value']}],
+                    value=[option['value']] if option['value'] in selected_series else [],
+                    labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px', 'cursor': 'pointer'},
+                    inputStyle={"margin-right": "5px"},
+                    style={"display": "inline-block"}
+                )
+            ], id=item_id, style={"width": "100%"})
+        ], style={"width": "100%", "margin-bottom": "2px"})
+
+        checklist_items.append(item)
+
+        # Add tooltip for this item
+        description = metadata_descriptions.get(option['value'], option['label'])
+        tooltip = dbc.Tooltip(
+            description,
+            target=item_id,
+            placement="right",
+            delay={"show": 500, "hide": 100}
+        )
+        tooltips.append(tooltip)
+
     return dbc.Row([
         dbc.Col([
             dbc.Card(
@@ -148,14 +226,19 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
                             dbc.Card(
                                 dbc.CardBody([
                                     html.H6("Time Series", className="fw-bold"),
+                                    html.Div(
+                                        checklist_items,
+                                        style={"maxHeight": "220px", "overflowY": "auto", "width": "100%"}
+                                    ),
+                                    # Hidden main checklist to maintain callback compatibility
                                     dcc.Checklist(
                                         id={'type': 'series-selector-checklist', 'index': panel_id},
                                         options=global_series_options,
                                         value=selected_series,
-                                        labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px'},
-                                        inputStyle={"margin-right": "5px"},
-                                        style={"maxHeight": "220px", "overflowY": "auto"}
+                                        style={"display": "none"}
                                     ),
+                                    # Add all tooltips
+                                    *[tooltip for tooltip in tooltips],
                                     html.Hr(className="my-3"),
                                     html.H6("Detection Methods", className="fw-bold"),
                                     dcc.Checklist(
@@ -310,7 +393,7 @@ app.layout = dbc.Container([
 )
 def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_values):
     """Reload data from the specified parquet folder."""
-    global global_detector, global_series_options, global_min_date, global_max_date
+    global global_detector, global_series_options, global_min_date, global_max_date, metadata_descriptions
 
     if not parquet_folder or parquet_folder.strip() == "":
         # If empty, reload with default
@@ -362,6 +445,42 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
         print(f"Error reloading data: {e}")
         # Return no updates on error
         return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+
+# Callback to handle individual checkbox changes
+@app.callback(
+    Output({'type': 'series-selector-checklist', 'index': ALL}, 'value', allow_duplicate=True),
+    [Input({'type': 'individual-checkbox', 'panel': ALL, 'series': ALL}, 'value')],
+    [State({'type': 'individual-checkbox', 'panel': ALL, 'series': ALL}, 'id'),
+     State({'type': 'series-selector-checklist', 'index': ALL}, 'id')],
+    prevent_initial_call=True
+)
+def update_series_selector_from_individual_checkboxes(individual_values, individual_ids, checklist_ids):
+    """Update the main series selectors when individual checkboxes change."""
+    # Group by panel
+    panel_updates = {}
+
+    # Initialize all panels
+    for checklist_id in checklist_ids:
+        panel_id = checklist_id['index']
+        panel_updates[panel_id] = set()
+
+    # Collect selected series per panel
+    for i, checkbox_id in enumerate(individual_ids):
+        panel_id = checkbox_id['panel']
+        series_name = checkbox_id['series']
+        is_checked = len(individual_values[i]) > 0
+
+        if is_checked:
+            if panel_id in panel_updates:
+                panel_updates[panel_id].add(series_name)
+
+    # Return updates in the same order as checklist_ids
+    result = []
+    for checklist_id in checklist_ids:
+        panel_id = checklist_id['index']
+        result.append(list(panel_updates.get(panel_id, set())))
+
+    return result
 
 # Callback to update panel selections in store
 @app.callback(
