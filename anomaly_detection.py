@@ -1,20 +1,18 @@
 import pandas as pd
 import numpy as np
 import polars as pl
-from sklearn.ensemble import IsolationForest
 import plotly.graph_objects as go
 from typing import Dict, List, Optional
 
 
 class TimeSeriesAnomalyDetector:
     """
-    Class to detect anomalies in time series using different methods.
-    Initially implements Isolation Forest, but is designed to be extensible.
+    Class to load and visualize time series data from Parquet files.
     """
 
     def __init__(self, series_data: Optional[Dict[str, pd.DataFrame]] = None):
         """
-        Initializes the anomaly detector.
+        Initializes the time series detector.
 
         Args:
             series_data: Optional dictionary with time series.
@@ -22,7 +20,6 @@ class TimeSeriesAnomalyDetector:
                         The index must be of type datetime.
         """
         self.dataframes: Dict[str, pd.DataFrame] = {}
-        self.results: Dict[str, pd.DataFrame] = {}
 
         if series_data:
             for name, df in series_data.items():
@@ -52,7 +49,6 @@ class TimeSeriesAnomalyDetector:
                     raise ValueError(f"Could not convert index to datetime for series {name}")
 
         self.dataframes[name] = df.copy()
-        self.results[name] = pd.DataFrame(index=df.index)
 
     def _clean_numeric_columns(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -104,92 +100,14 @@ class TimeSeriesAnomalyDetector:
 
         return df_clean
 
-    def apply_isolation_forest(self, series_name: str, target_col: str,
-                             n_estimators: int = 100, contamination: float = 0.01) -> None:
+
+    def plot_series(self, series_name: str, target_col: str) -> go.Figure:
         """
-        Applies the Isolation Forest method to detect anomalies.
-
-        Args:
-            series_name: Name of the series to analyze
-            target_col: Name of the target column
-            n_estimators: Number of estimators for IsolationForest
-            contamination: Proportion of expected anomalies
-        """
-        if series_name not in self.dataframes:
-            raise ValueError(f"Series '{series_name}' not found")
-
-        df = self.dataframes[series_name]
-        if target_col not in df.columns:
-            raise ValueError(f"Column '{target_col}' not found in series '{series_name}'")
-
-        # Feature Engineering: Create lag features
-        data = df[[target_col]].copy()
-        data.columns = ['value']
-
-        # Create lags (t-1, t-2, t-3)
-        for lag in range(1, 4):
-            data[f'lag_{lag}'] = data['value'].shift(lag)
-
-        # Drop rows with NaN (first rows without lags)
-        data_clean = data.dropna()
-
-        if len(data_clean) < 10:
-            raise ValueError("Not enough data to apply Isolation Forest")
-
-        # Prepare features for the model
-        features = data_clean[['value', 'lag_1', 'lag_2', 'lag_3']]
-
-        # Train IsolationForest
-        iforest = IsolationForest(
-            n_estimators=n_estimators,
-            contamination=contamination,
-            random_state=42
-        )
-
-        # Prediction: -1 for anomaly, 1 for normal
-        predictions = iforest.fit_predict(features)
-        scores = iforest.score_samples(features)
-
-        # Create DataFrame with results aligned with the original index
-        result_df = pd.DataFrame({
-            'is_anomaly_IF': np.nan
-        }, index=data.index)
-
-        # Assign predictions only for rows used in the model
-        result_df.loc[data_clean.index, 'is_anomaly_IF'] = predictions
-        result_df.loc[data_clean.index, 'anomaly_score_IF'] = scores
-
-        # If results for this series do not exist, initialize it
-        if series_name not in self.results:
-            self.results[series_name] = result_df
-        else:
-            # Combine with existing results
-            self.results[series_name] = pd.concat([
-                self.results[series_name], result_df
-            ], axis=1)
-
-    def apply_method(self, series_name: str, method_name: str, **kwargs) -> None:
-        """
-        Placeholder method for future implementations of other anomaly detection algorithms.
-
-        Args:
-            series_name: Name of the series to analyze
-            method_name: Name of the method to apply
-            **kwargs: Specific parameters for the method
-        """
-        # This is a placeholder for future extensions
-        # For example: apply_one_class_svm, apply_hampel_filter, etc.
-        raise NotImplementedError(f"Method '{method_name}' not yet implemented")
-
-    def plot_anomalies(self, series_name: str, target_col: str,
-                      methods_to_plot: List[str]) -> go.Figure:
-        """
-        Creates an interactive visualization of the time series with detected anomalies.
+        Creates an interactive visualization of the time series.
 
         Args:
             series_name: Name of the series to visualize
             target_col: Name of the target column
-            methods_to_plot: List of methods whose anomalies to show
 
         Returns:
             Plotly figure with the visualization
@@ -198,7 +116,6 @@ class TimeSeriesAnomalyDetector:
             raise ValueError(f"Series '{series_name}' not found")
 
         df = self.dataframes[series_name]
-        results = self.results.get(series_name, pd.DataFrame())
 
         # Create base figure
         fig = go.Figure()
@@ -212,37 +129,9 @@ class TimeSeriesAnomalyDetector:
             line=dict(color='blue', width=2)
         ))
 
-        # Colors for different methods
-        colors = ['red', 'orange', 'green', 'purple', 'brown']
-
-        # Add detected anomalies by each method
-        for i, method in enumerate(methods_to_plot):
-            anomaly_col = f'is_anomaly_{method}'
-
-            if anomaly_col not in results.columns:
-                print(f"Warning: Column '{anomaly_col}' not found in results")
-                continue
-
-            # Filter only anomalies (-1)
-            anomalies = results[results[anomaly_col] == -1]
-
-            if len(anomalies) > 0:
-                # Add anomaly points
-                fig.add_trace(go.Scatter(
-                    x=anomalies.index,
-                    y=df.loc[anomalies.index, target_col],
-                    mode='markers',
-                    name=f'Anomalies - {method}',
-                    marker=dict(
-                        color=colors[i % len(colors)],
-                        size=8,
-                        symbol='x'
-                    )
-                ))
-
         # Configure layout
         fig.update_layout(
-            title=f'Anomaly Analysis - {series_name}',
+            title=f'Time Series - {series_name}',
             xaxis_title='Time',
             yaxis_title=target_col,
             hovermode='x unified',
@@ -252,14 +141,13 @@ class TimeSeriesAnomalyDetector:
         return fig
 
     def plot_multiple_series(self, series_names: List[str], target_col: str,
-                           methods_to_plot: List[str], start_date=None, end_date=None) -> go.Figure:
+                           start_date=None, end_date=None) -> go.Figure:
         """
-        Creates an interactive combined visualization of multiple time series with detected anomalies.
+        Creates an interactive combined visualization of multiple time series.
 
         Args:
             series_names: List of names of the series to visualize
             target_col: Name of the target column
-            methods_to_plot: List of methods whose anomalies to show
             start_date: Optional start date to filter the data
             end_date: Optional end date to filter the data
 
@@ -271,7 +159,6 @@ class TimeSeriesAnomalyDetector:
 
         # Colors for different series
         series_colors = ['blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive']
-        anomaly_colors = ['red', 'darkgreen', 'darkorange', 'darkviolet', 'darkred', 'hotpink', 'dimgray', 'darkolivegreen']
 
         for i, series_name in enumerate(series_names):
             if series_name not in self.dataframes:
@@ -279,17 +166,14 @@ class TimeSeriesAnomalyDetector:
                 continue
 
             df = self.dataframes[series_name]
-            results = self.results.get(series_name, pd.DataFrame())
 
             # Filter by date range if provided
             if start_date is not None and end_date is not None:
                 df = df[(df.index >= start_date) & (df.index <= end_date)]
-                results = results[(results.index >= start_date) & (results.index <= end_date)]
 
             # Color for this series
             color_idx = i % len(series_colors)
             series_color = series_colors[color_idx]
-            anomaly_color = anomaly_colors[color_idx]
 
             # Add the main time series
             fig.add_trace(go.Scatter(
@@ -301,37 +185,10 @@ class TimeSeriesAnomalyDetector:
                 legendgroup=series_name
             ))
 
-            # Add detected anomalies by each method
-            for method in methods_to_plot:
-                anomaly_col = f'is_anomaly_{method}'
-
-                if anomaly_col not in results.columns:
-                    print(f"Warning: Column '{anomaly_col}' not found in results for {series_name}")
-                    continue
-
-                # Filter only anomalies (-1)
-                anomalies = results[results[anomaly_col] == -1]
-
-                if len(anomalies) > 0:
-                    # Add anomaly points
-                    fig.add_trace(go.Scatter(
-                        x=anomalies.index,
-                        y=df.loc[anomalies.index, target_col],
-                        mode='markers',
-                        name=f'Anomalies {series_name} - {method}',
-                        marker=dict(
-                            color=anomaly_color,
-                            size=8,
-                            symbol='x'
-                        ),
-                        legendgroup=series_name,
-                        showlegend=False
-                    ))
-
         # Configure layout
         series_list = ", ".join(series_names)
         fig.update_layout(
-            title=f'Anomaly Analysis - Series: {series_list}',
+            title=f'Time Series - Series: {series_list}',
             xaxis_title='Time',
             yaxis_title=target_col,
             hovermode='x unified',

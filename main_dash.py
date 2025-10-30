@@ -20,12 +20,15 @@ app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "FIELD LABEL"
 
 # Load metadata descriptions
-def load_metadata_descriptions():
+def load_metadata_descriptions(parquet_folder=None):
     """Load descriptions from metadata.json file."""
     descriptions = {}
+    metadata_message = ""
+
+    if parquet_folder is None:
+        return descriptions, "No parquet folder specified for metadata loading."
+
     try:
-        # Try to load from the parquet folder first
-        parquet_folder = os.getenv('PARQUET_FOLDER', 'parquets')
         metadata_path = os.path.join(parquet_folder, 'metadata.json')
         if os.path.exists(metadata_path):
             with open(metadata_path, 'r', encoding='utf-8') as f:
@@ -35,80 +38,40 @@ def load_metadata_descriptions():
                         descriptions[key] = value[0].get('description', key)
                     else:
                         descriptions[key] = key
+            metadata_message = f"Loaded metadata descriptions from {metadata_path}."
         else:
-            # Fallback: try different common locations
-            possible_paths = [
-                'parquets/POCO_MRO_003/metadata.json',
-                'parquets/metadata.json',
-                'metadata.json'
-            ]
-            for path in possible_paths:
-                if os.path.exists(path):
-                    with open(path, 'r', encoding='utf-8') as f:
-                        metadata = json.load(f)
-                        for key, value in metadata.items():
-                            if isinstance(value, list) and len(value) > 0:
-                                descriptions[key] = value[0].get('description', key)
-                            else:
-                                descriptions[key] = key
-                    break
+            metadata_message = f"Metadata file not found at {metadata_path}. Using series names as descriptions."
     except Exception as e:
-        print(f"Warning: Could not load metadata descriptions: {e}")
-        # Create fallback descriptions using the series names
+        metadata_message = f"Could not load metadata descriptions: {str(e)}. Using series names as descriptions."
         descriptions = {}
 
-    return descriptions
+    return descriptions, metadata_message
 
-def initialize_detector():
+def initialize_detector(parquet_folder=None):
     """
-    Initializes the detector by loading data from either CSV or Parquet files based on environment configuration.
+    Initializes the detector by loading data from Parquet files only.
+    If parquet_folder is None, returns empty initialization.
     """
     detector = TimeSeriesAnomalyDetector()
 
-    # Get configuration from environment variables
-    data_source = os.getenv('DATA_SOURCE', 'PARQUET').upper()
-    parquet_folder = os.getenv('PARQUET_FOLDER', 'parquets')
-    csv_file = os.getenv('CSV_FILE', 'csv_to_dash/multi_series_test.csv')
+    # If no parquet folder provided, return empty initialization
+    if parquet_folder is None:
+        return detector, [], None, None
 
     series_options = []
+    success_message = ""
+    error_message = ""
 
-    if data_source == 'PARQUET':
-        print("Loading data from Parquet files...")
-        try:
-            series_options = detector.load_series_from_parquet(parquet_folder, target_col='Value')
-            print(f"Loaded {len(series_options)} series from Parquet files")
-            for option in series_options:
-                print(f"  - {option['label']}")
-        except Exception as e:
-            print(f"Error loading Parquet files: {e}")
-            print("Falling back to CSV...")
-            data_source = 'CSV'
-
-    if data_source == 'CSV':
-        print("Loading data from CSV file...")
-        try:
-            series_options = detector.load_series_from_csv(csv_file, target_col='Value')
-            print(f"Loaded {len(series_options)} series from CSV")
-            for option in series_options:
-                print(f"  - {option['label']} (WebId: {option['value']})")
-        except Exception as e:
-            print(f"Error loading CSV: {e}")
-            print("Generating fallback data...")
-            # Fallback to synthetic data if both sources fail
-            series_options = generate_fallback_options(detector)
-
-    # Apply Isolation Forest to all loaded series
-    # for series_name in detector.dataframes.keys():
-    #     try:
-    #         detector.apply_isolation_forest(
-    #             series_name=series_name,
-    #             target_col='Value',
-    #             n_estimators=100,
-    #             contamination=0.01  # 1% expected anomalies
-    #         )
-    #         print(f"Applied Isolation Forest to {series_name}")
-    #     except Exception as e:
-    #         print(f"Error processing {series_name}: {e}")
+    print(f"Loading data from Parquet files in: {parquet_folder}")
+    try:
+        series_options = detector.load_series_from_parquet(parquet_folder, target_col='Value')
+        if series_options:
+            print(f"Successfully loaded {len(series_options)} series from Parquet files")
+            success_message = f"Loaded {len(series_options)} time series from Parquet files."
+        else:
+            error_message = "No Parquet files found in the specified folder."
+    except Exception as e:
+        error_message = f"Error loading Parquet files: {str(e)}"
 
     # Calculate global date range for slider
     global_min_date = None
@@ -123,7 +86,7 @@ def initialize_detector():
                 if global_max_date is None or series_max > global_max_date:
                     global_max_date = series_max
 
-    return detector, series_options, global_min_date, global_max_date
+    return detector, series_options, global_min_date, global_max_date, success_message, error_message
 
 def generate_fallback_options(detector):
     """
@@ -140,26 +103,21 @@ def generate_fallback_options(detector):
 
     return [{'label': 'Fallback_Series', 'value': 'FALLBACK001'}]
 
-# Initialize detector and global options
-detector, series_options, global_min_date, global_max_date = initialize_detector()
+# Initialize with empty data - will be loaded when user clicks Apply
+global_detector = TimeSeriesAnomalyDetector()
+global_series_options = []
+global_min_date = None
+global_max_date = None
+metadata_descriptions = {}
+global_messages = {"success": "", "error": "", "metadata": ""}
 
-# Load metadata descriptions
-metadata_descriptions = load_metadata_descriptions()
-
-# Global variables to be updated when reloading data
-global_detector = detector
-global_series_options = series_options
-global_min_date = global_min_date
-global_max_date = global_max_date
-
-def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
+def create_graph_panel(panel_id, selected_series=None):
     """
     Creates a template for a dynamic graph panel.
 
     Args:
         panel_id: Unique ID for the panel
         selected_series: List of selected series (optional)
-        selected_methods: List of selected methods (optional)
 
     Returns:
         A dbc.Row component with the complete panel
@@ -167,16 +125,14 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
     # Default values if not provided
     if selected_series is None:
         selected_series = [global_series_options[0]['value']] if global_series_options else []
-    if selected_methods is None:
-        selected_methods = ['IF']
 
     # Pre-compute initial figure so each panel renders without interaction
-    if selected_series and global_detector:
-        initial_figure = global_detector.plot_multiple_series(selected_series, 'Value', selected_methods)
+    if selected_series and global_detector and global_detector.dataframes:
+        initial_figure = global_detector.plot_multiple_series(selected_series, 'Value')
     else:
         initial_figure = go.Figure()
         initial_figure.update_layout(
-            title="Select at least one time series",
+            title="No data loaded yet. Click 'Apply' to load data from parquet folder.",
             xaxis_title="Time",
             yaxis_title="Value",
             showlegend=False,
@@ -240,15 +196,6 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
                                     # Add all tooltips
                                     *[tooltip for tooltip in tooltips],
                                     html.Hr(className="my-3"),
-                                    html.H6("Detection Methods", className="fw-bold"),
-                                    dcc.Checklist(
-                                        id={'type': 'methods-selector-checklist', 'index': panel_id},
-                                        options=[{'label': 'Isolation Forest', 'value': 'IF'}],
-                                        value=selected_methods,
-                                        labelStyle={'display': 'block', 'margin-bottom': '5px', 'fontSize': '12px'},
-                                        inputStyle={"margin-right": "5px"}
-                                    ),
-                                    html.Hr(className="my-3"),
                                     dbc.Button(
                                         "×",
                                         id={'type': 'delete-graph-button', 'index': panel_id},
@@ -284,7 +231,13 @@ def create_graph_panel(panel_id, selected_series=None, selected_methods=None):
 
 # Initial layout with one default panel
 initial_panel_id = str(uuid.uuid4())[:8]
-default_series = [global_series_options[0]['value']] if global_series_options else []
+default_series = []
+
+# Store to manage panel states (series selections only)
+initial_panel_data = [{
+    'id': initial_panel_id,
+    'series': default_series
+}]
 
 def configure_global_slider(min_date, max_date):
     """Configure slider parameters based on date range."""
@@ -350,18 +303,21 @@ app.layout = dbc.Container([
         ], width=12, className="mb-4")
     ]),
 
-    # Store to manage panel states (series and methods selections)
-    dcc.Store(id='graph-store', data=[{
-        'id': initial_panel_id,
-        'series': default_series,
-        'methods': ['IF']
-    }]),
+    # Store to manage panel states (series selections only)
+    dcc.Store(id='graph-store', data=initial_panel_data),
 
     # Dynamic graph container
     html.Div(
         id='graph-container',
-        children=[create_graph_panel(initial_panel_id, default_series, ['IF'])],
+        children=[create_graph_panel(initial_panel_id, default_series)],
         style={"width": "100%"}
+    ),
+
+    # Messages display area
+    html.Div(
+        id='messages-container',
+        children=[],
+        style={"marginBottom": "20px"}
     ),
 
     # Button to duplicate panels
@@ -384,16 +340,19 @@ app.layout = dbc.Container([
      Output('global-range-slider', 'value'),
      Output('global-range-slider', 'marks'),
      Output({'type': 'series-selector-checklist', 'index': ALL}, 'options'),
-     Output({'type': 'series-selector-checklist', 'index': ALL}, 'value')],
+     Output({'type': 'series-selector-checklist', 'index': ALL}, 'value'),
+     Output('graph-container', 'children', allow_duplicate=True),
+     Output('messages-container', 'children')],
     [Input('apply-folder-button', 'n_clicks')],
     [State('parquet-folder-input', 'value'),
      State({'type': 'series-selector-checklist', 'index': ALL}, 'id'),
-     State({'type': 'series-selector-checklist', 'index': ALL}, 'value')],
+     State({'type': 'series-selector-checklist', 'index': ALL}, 'value'),
+     State('graph-store', 'data')],
     prevent_initial_call=True
 )
-def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_values):
+def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_values, current_panels):
     """Reload data from the specified parquet folder."""
-    global global_detector, global_series_options, global_min_date, global_max_date, metadata_descriptions
+    global global_detector, global_series_options, global_min_date, global_max_date, metadata_descriptions, global_messages
 
     if not parquet_folder or parquet_folder.strip() == "":
         # If empty, reload with default
@@ -404,14 +363,32 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
         original_parquet_folder = os.environ.get('PARQUET_FOLDER')
         os.environ['PARQUET_FOLDER'] = parquet_folder.strip()
 
+        # Load metadata descriptions
+        metadata_descriptions, metadata_message = load_metadata_descriptions(parquet_folder.strip())
+
         # Reload data
-        new_detector, new_series_options, new_min_date, new_max_date = initialize_detector()
+        new_detector, new_series_options, new_min_date, new_max_date, success_message, error_message = initialize_detector(parquet_folder.strip())
 
         # Update global variables
         global_detector = new_detector
         global_series_options = new_series_options
         global_min_date = new_min_date
         global_max_date = new_max_date
+
+        # Prepare messages for display
+        messages = []
+        if success_message:
+            messages.append(dbc.Alert(success_message, color="success", dismissable=True))
+        if error_message:
+            messages.append(dbc.Alert(error_message, color="warning", dismissable=True))
+        if metadata_message:
+            messages.append(dbc.Alert(metadata_message, color="info", dismissable=True))
+
+        global_messages = {
+            "success": success_message,
+            "error": error_message,
+            "metadata": metadata_message
+        }
 
         # Configure new slider parameters
         slider_min, slider_max, slider_value, slider_marks = configure_global_slider(new_min_date, new_max_date)
@@ -433,18 +410,36 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
                 # If no values selected, select first available
                 updated_values.append([new_series_options[0]['value']] if new_series_options else [])
 
+        # Update panels with new data
+        panel_components = []
+        if current_panels:
+            for panel in current_panels:
+                panel_id = panel['id']
+                selected_series = panel.get('series', [])
+                # Filter to only include valid series
+                valid_series = [s for s in selected_series if any(opt['value'] == s for opt in new_series_options)]
+                if not valid_series and new_series_options:
+                    valid_series = [new_series_options[0]['value']]
+                panel_components.append(create_graph_panel(panel_id, valid_series))
+        else:
+            # Create default panel if none exist
+            panel_id = str(uuid.uuid4())[:8]
+            default_series = [new_series_options[0]['value']] if new_series_options else []
+            panel_components = [create_graph_panel(panel_id, default_series)]
+
         # Restore original environment variable
         if original_parquet_folder is not None:
             os.environ['PARQUET_FOLDER'] = original_parquet_folder
         elif 'PARQUET_FOLDER' in os.environ:
             del os.environ['PARQUET_FOLDER']
 
-        return slider_min, slider_max, slider_value, slider_marks, series_options_list, updated_values
+        return slider_min, slider_max, slider_value, slider_marks, series_options_list, updated_values, panel_components, messages
 
     except Exception as e:
         print(f"Error reloading data: {e}")
+        error_alert = dbc.Alert(f"Unexpected error: {str(e)}", color="danger", dismissable=True)
         # Return no updates on error
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, [error_alert]
 
 # Callback to handle individual checkbox changes
 @app.callback(
@@ -492,13 +487,12 @@ def update_series_selector_from_individual_checkboxes(individual_values, individ
      Output('global-range-slider', 'marks', allow_duplicate=True)],
     [Input('add-graph-button', 'n_clicks'),
      Input({'type': 'delete-graph-button', 'index': ALL}, 'n_clicks'),
-     Input({'type': 'series-selector-checklist', 'index': ALL}, 'value'),
-     Input({'type': 'methods-selector-checklist', 'index': ALL}, 'value')],
+     Input({'type': 'series-selector-checklist', 'index': ALL}, 'value')],
     [State('graph-store', 'data'),
      State('global-range-slider', 'value')],
     prevent_initial_call=True
 )
-def manage_graph_panels(add_clicks, delete_clicks, series_values, methods_values, current_panels, current_slider_value):
+def manage_graph_panels(add_clicks, delete_clicks, series_values, current_panels, current_slider_value):
     """
     Callback to manage the creation and deletion of panels.
     """
@@ -517,22 +511,18 @@ def manage_graph_panels(add_clicks, delete_clicks, series_values, methods_values
     if current_panels is None:
         current_panels = []
     series_values = series_values or []
-    methods_values = methods_values or []
 
     # Update stored selections for current panels
     for idx, panel in enumerate(current_panels):
         if idx < len(series_values):
             panel['series'] = series_values[idx] or []
-        if idx < len(methods_values):
-            panel['methods'] = methods_values[idx] or []
 
     # Determine which action was performed
     if trigger_id == 'add-graph-button':
         new_panel_id = str(uuid.uuid4())[:8]
         current_panels.append({
             'id': new_panel_id,
-            'series': default_series.copy(),
-            'methods': ['IF']
+            'series': default_series.copy()
         })
     elif isinstance(trigger_id, dict) and trigger_id.get('type') == 'delete-graph-button':
         delete_index = trigger_id['index']
@@ -543,8 +533,7 @@ def manage_graph_panels(add_clicks, delete_clicks, series_values, methods_values
         new_panel_id = str(uuid.uuid4())[:8]
         current_panels = [{
             'id': new_panel_id,
-            'series': default_series.copy(),
-            'methods': ['IF']
+            'series': default_series.copy()
         }]
 
     # Create components for all panels using their current state
@@ -552,8 +541,7 @@ def manage_graph_panels(add_clicks, delete_clicks, series_values, methods_values
     for panel in current_panels:
         panel_id = panel['id']
         selected_series = panel.get('series', []) or default_series.copy()
-        selected_methods = panel.get('methods', ['IF']) or ['IF']
-        panel_components.append(create_graph_panel(panel_id, selected_series, selected_methods))
+        panel_components.append(create_graph_panel(panel_id, selected_series))
 
     # Calculate new slider range based on currently selected series across all panels
     active_min_date = None
@@ -599,23 +587,26 @@ def manage_graph_panels(add_clicks, delete_clicks, series_values, methods_values
 @app.callback(
     Output({'type': 'anomalies-graph', 'index': MATCH}, 'figure'),
     [Input({'type': 'series-selector-checklist', 'index': MATCH}, 'value'),
-     Input({'type': 'methods-selector-checklist', 'index': MATCH}, 'value'),
      Input('global-range-slider', 'value')],
     [State({'type': 'anomalies-graph', 'index': MATCH}, 'id')],
     prevent_initial_call=True
 )
-def update_individual_graph(selected_series, selected_methods, global_slider_value, graph_id):
+def update_individual_graph(selected_series, global_slider_value, graph_id):
     """
     Callback to update individual graphs using MATCH pattern.
     """
     panel_id = graph_id['index']
 
-    if not selected_series:
-        # If no series are selected, show an empty graph
+    if not selected_series or not global_detector.dataframes:
+        # If no series are selected or no data is loaded, show appropriate message
         import plotly.graph_objects as go
         fig = go.Figure()
+        if not global_detector.dataframes:
+            title = "No data loaded yet. Click 'Apply' to load data from parquet folder."
+        else:
+            title = "Select at least one time series"
         fig.update_layout(
-            title="Select at least one time series",
+            title=title,
             xaxis_title="Time",
             yaxis_title="Value",
             showlegend=False,
@@ -631,7 +622,7 @@ def update_individual_graph(selected_series, selected_methods, global_slider_val
         end_date = datetime.fromtimestamp(global_slider_value[1])
 
     # Create graph for this specific panel
-    return global_detector.plot_multiple_series(selected_series, 'Value', selected_methods, start_date, end_date)
+    return global_detector.plot_multiple_series(selected_series, 'Value', start_date, end_date)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8050)
