@@ -184,7 +184,7 @@ def create_graph_panel(panel_id, selected_series=None):
                                     html.H6("Time Series", className="fw-bold"),
                                     html.Div(
                                         checklist_items,
-                                        style={"maxHeight": "220px", "overflowY": "auto", "width": "100%"}
+                                        style={"maxHeight": "470px", "overflowY": "auto", "width": "100%"}
                                     ),
                                     # Hidden main checklist to maintain callback compatibility
                                     dcc.Checklist(
