@@ -220,7 +220,7 @@ def create_graph_panel(panel_id, selected_series=None):
                                     )
                                 ]
                             )
-                        ], width=8)
+                        ], width=9)
                     ], className="g-3", align="stretch")
                 ]),
                 className="mb-4",

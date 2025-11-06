@@ -192,8 +192,18 @@ class TimeSeriesAnomalyDetector:
             xaxis_title='Time',
             yaxis_title=target_col,
             hovermode='x unified',
-            showlegend=False,
-            height=600
+            showlegend=True,
+            height=600,
+            legend=dict(
+                orientation="v",
+                yanchor="top",
+                y=0.99,
+                xanchor="right",
+                x=0.99,
+                bgcolor='rgba(255, 255, 255, 0.9)', 
+                bordercolor="Black",
+                borderwidth=1
+            )
         )
 
         return fig
