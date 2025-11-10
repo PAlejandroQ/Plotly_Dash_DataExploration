@@ -19,6 +19,63 @@ load_dotenv()
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "FIELD LABEL"
 
+def get_directory_structure(max_depth=2):
+    """
+    Get directory structure based on PARQUET_FOLDER environment variable.
+    Shows only directories up to max_depth levels.
+    Returns a formatted string showing the directory tree.
+    """
+    base_path = os.getenv('PARQUET_FOLDER', 'parquets')
+
+    if not os.path.exists(base_path):
+        return f"❌ Directory '{base_path}' does not exist."
+
+    if not os.path.isdir(base_path):
+        return f"❌ '{base_path}' is not a directory."
+
+    def explore_dir(path, current_depth=0, prefix=""):
+        if current_depth > max_depth:
+            return []
+
+        lines = []
+        try:
+            items = os.listdir(path)
+            dirs = [item for item in items if os.path.isdir(os.path.join(path, item))]
+            dirs.sort()
+
+            if not dirs:
+                return lines
+
+            for i, dir_name in enumerate(dirs):
+                full_path = os.path.join(path, dir_name)
+                is_last = (i == len(dirs) - 1)
+
+                # Add current directory
+                if current_depth == 0:
+                    lines.append(f"📁 {full_path}/")
+                else:
+                    connector = "└── " if is_last else "├── "
+                    lines.append(f"{prefix}{connector}📁 {full_path}/")
+
+                # Explore subdirectories if not at max depth
+                if current_depth < max_depth:
+                    next_prefix = prefix + ("    " if is_last else "│   ")
+                    sub_lines = explore_dir(full_path, current_depth + 1, next_prefix)
+                    lines.extend(sub_lines)
+
+        except PermissionError:
+            lines.append(f"{prefix}└── 📁 [Permission denied]")
+        except Exception as e:
+            lines.append(f"{prefix}└── [Error: {str(e)}]")
+
+        return lines
+
+    lines = explore_dir(base_path)
+    if not lines:
+        return f"📂 No subdirectories found in '{base_path}'."
+
+    return "\n".join(lines)
+
 # Load metadata descriptions
 def load_metadata_descriptions(parquet_folder=None):
     """Load descriptions from metadata.json file."""
@@ -285,6 +342,35 @@ app.layout = dbc.Container([
                 dbc.Button("Apply", id='apply-folder-button', color="primary", className="ms-2")
             ]),
         ], width=12, className="mb-3")
+    ]),
+    # Directory structure display
+    dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader([
+                    html.H6("Available Directories", className="mb-0"),
+                    html.Small("Directories found in PARQUET_FOLDER. Select and copy any path to paste in the input above.", className="text-muted d-block")
+                ]),
+                dbc.CardBody([
+                    html.Pre(
+                        get_directory_structure(),
+                        id='directory-structure-display',
+                        style={
+                            'font-family': 'monospace',
+                            'font-size': '12px',
+                            'line-height': '1.4',
+                            'margin': '0',
+                            'white-space': 'pre-wrap',
+                            'word-wrap': 'break-word',
+                            'max-height': '300px',
+                            'overflow-y': 'auto',
+                            'cursor': 'pointer',
+                            'user-select': 'text'
+                        }
+                    )
+                ])
+            ])
+        ], width=12, className="mb-4")
     ]),
     # Global time range slider
     dbc.Row([
