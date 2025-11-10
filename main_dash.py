@@ -22,7 +22,7 @@ app.title = "FIELD LABEL"
 def get_directory_structure(max_depth=2):
     """
     Get directory structure based on PARQUET_FOLDER environment variable.
-    Shows only directories up to max_depth levels.
+    Shows only directories up to max_depth levels with absolute paths.
     Returns a formatted string showing the directory tree.
     """
     base_path = os.getenv('PARQUET_FOLDER', 'parquets')
@@ -48,14 +48,15 @@ def get_directory_structure(max_depth=2):
 
             for i, dir_name in enumerate(dirs):
                 full_path = os.path.join(path, dir_name)
+                abs_path = os.path.abspath(full_path)
                 is_last = (i == len(dirs) - 1)
 
-                # Add current directory
+                # Add current directory with absolute path
                 if current_depth == 0:
-                    lines.append(f"📁 {full_path}/")
+                    lines.append(f"📁 {abs_path}/")
                 else:
                     connector = "└── " if is_last else "├── "
-                    lines.append(f"{prefix}{connector}📁 {full_path}/")
+                    lines.append(f"{prefix}{connector}📁 {abs_path}/")
 
                 # Explore subdirectories if not at max depth
                 if current_depth < max_depth:

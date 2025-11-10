@@ -194,16 +194,16 @@ class TimeSeriesAnomalyDetector:
             hovermode='x unified',
             showlegend=True,
             height=600,
-            legend=dict(
-                orientation="v",
-                yanchor="top",
-                y=0.99,
-                xanchor="right",
-                x=0.99,
-                bgcolor='rgba(255, 255, 255, 0.9)', 
-                bordercolor="Black",
-                borderwidth=1
-            )
+            # legend=dict(
+            #     orientation="v",
+            #     yanchor="top",
+            #     y=0.99,
+            #     xanchor="right",
+            #     x=0.99,
+            #     bgcolor='rgba(255, 255, 255, 0.9)', 
+            #     bordercolor="Black",
+            #     borderwidth=1
+            # )
         )
 
         return fig
