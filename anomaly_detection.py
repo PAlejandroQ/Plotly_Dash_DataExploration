@@ -141,15 +141,16 @@ class TimeSeriesAnomalyDetector:
         return fig
 
     def plot_multiple_series(self, series_names: List[str], target_col: str,
-                           start_date=None, end_date=None) -> go.Figure:
+                           start_date=None, end_date=None, units_dict=None) -> go.Figure:
         """
-        Creates an interactive combined visualization of multiple time series.
+        Creates an interactive combined visualization of multiple time series with multiple Y-axes.
 
         Args:
             series_names: List of names of the series to visualize
             target_col: Name of the target column
             start_date: Optional start date to filter the data
             end_date: Optional end date to filter the data
+            units_dict: Dictionary mapping series names to their units
 
         Returns:
             Plotly figure with the combined visualization
@@ -157,8 +158,19 @@ class TimeSeriesAnomalyDetector:
         # Create base figure
         fig = go.Figure()
 
+        # Define Y-axis mapping for units
+        unit_axis_map = {
+            'kgf/cm² a': 'y',      # Primary Y-axis
+            'ºC': 'y2',            # Secondary Y-axis (temperature)
+            'l': 'y3',             # Third Y-axis (liters)
+            'm3/d': 'y4'           # Fourth Y-axis (cubic meters per day)
+        }
+
         # Colors for different series
-        series_colors = ['blue', 'green', 'orange', 'purple', 'brown', 'pink', 'gray', 'olive']
+        series_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f']
+
+        # Track which axes are used
+        used_axes = set()
 
         for i, series_name in enumerate(series_names):
             if series_name not in self.dataframes:
@@ -171,40 +183,83 @@ class TimeSeriesAnomalyDetector:
             if start_date is not None and end_date is not None:
                 df = df[(df.index >= start_date) & (df.index <= end_date)]
 
+            # Determine which Y-axis to use
+            unit = units_dict.get(series_name, '') if units_dict else ''
+            yaxis = unit_axis_map.get(unit, 'y')  # Default to primary axis
+            used_axes.add(yaxis)
+
             # Color for this series
             color_idx = i % len(series_colors)
             series_color = series_colors[color_idx]
 
-            # Add the main time series
+            # Add the time series
             fig.add_trace(go.Scatter(
                 x=df.index,
                 y=df[target_col],
                 mode='lines',
-                name=f'{series_name} - {target_col}',
+                name=f'{series_name}',
                 line=dict(color=series_color, width=2),
+                yaxis=yaxis,
                 legendgroup=series_name
             ))
 
-        # Configure layout
-        series_list = ", ".join(series_names)
-        fig.update_layout(
-            title=f'Time Series - Series: {series_list}',
-            xaxis_title='Time',
-            yaxis_title=target_col,
-            hovermode='x unified',
-            showlegend=True,
-            height=600,
-            # legend=dict(
+        # Configure axes based on used axes
+        layout_updates = {
+            'title': f'Time Series - {len(series_names)} series',
+            'xaxis_title': 'Time',
+            'hovermode': 'x unified',
+            'showlegend': True,
+            'height': 600,
+            # 'legend': dict(
             #     orientation="v",
             #     yanchor="top",
             #     y=0.99,
             #     xanchor="right",
             #     x=0.99,
-            #     bgcolor='rgba(255, 255, 255, 0.9)', 
+            #     bgcolor='rgba(255, 255, 255, 0.9)',
             #     bordercolor="Black",
             #     borderwidth=1
             # )
-        )
+        }
+
+        # Primary Y-axis (pressure)
+        if 'y' in used_axes:
+            layout_updates['yaxis'] = dict(
+                title=dict(text="Pressure (kgf/cm² a)", font=dict(color="#1f77b4")),
+                side="left"
+            )
+
+        # Secondary Y-axis (temperature)
+        if 'y2' in used_axes:
+            layout_updates['yaxis2'] = dict(
+                title=dict(text="Temperature (°C)", font=dict(color="#ff7f0e")),
+                anchor="free",
+                overlaying="y",
+                side="right",
+                position=0.85
+            )
+
+        # Third Y-axis (liters)
+        if 'y3' in used_axes:
+            layout_updates['yaxis3'] = dict(
+                title=dict(text="Volume (l)", font=dict(color="#2ca02c")),
+                anchor="free",
+                overlaying="y",
+                side="right",
+                position=0.95
+            )
+
+        # Fourth Y-axis (cubic meters per day)
+        if 'y4' in used_axes:
+            layout_updates['yaxis4'] = dict(
+                title=dict(text="Flow Rate (m³/d)", font=dict(color="#d62728")),
+                anchor="free",
+                overlaying="y",
+                side="left",
+                position=0.05
+            )
+
+        fig.update_layout(**layout_updates)
 
         return fig
 

@@ -77,33 +77,58 @@ def get_directory_structure(max_depth=2):
 
     return "\n".join(lines)
 
-# Load metadata descriptions
+# Load metadata descriptions and units with filtering
 def load_metadata_descriptions(parquet_folder=None):
-    """Load descriptions from metadata.json file."""
+    """Load descriptions and units from metadata.json file, filtering by allowed units."""
     descriptions = {}
+    units = {}
     metadata_message = ""
 
+    # Allowed units for multiple Y-axes
+    allowed_units = {'kgf/cm² a', 'ºC', 'l', 'm3/d'}
+
     if parquet_folder is None:
-        return descriptions, "No parquet folder specified for metadata loading."
+        return descriptions, units, "No parquet folder specified for metadata loading."
 
     try:
-        metadata_path = os.path.join(parquet_folder, 'metadata.json')
-        if os.path.exists(metadata_path):
+        # Try multiple possible locations for metadata.json
+        possible_paths = [
+            os.path.join(parquet_folder, 'metadata.json'),
+            os.path.join(parquet_folder, 'POCO_MRO_003', 'metadata.json'),
+            'parquets/POCO_MRO_003/metadata.json'
+        ]
+
+        metadata_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                metadata_path = path
+                break
+
+        if metadata_path:
             with open(metadata_path, 'r', encoding='utf-8') as f:
                 metadata = json.load(f)
+                filtered_count = 0
+                total_count = 0
+
                 for key, value in metadata.items():
+                    total_count += 1
                     if isinstance(value, list) and len(value) > 0:
-                        descriptions[key] = value[0].get('description', key)
-                    else:
-                        descriptions[key] = key
-            metadata_message = f"Loaded metadata descriptions from {metadata_path}."
+                        unit = value[0].get('unit', '')
+                        if unit in allowed_units:
+                            descriptions[key] = value[0].get('description', key)
+                            units[key] = unit
+                            filtered_count += 1
+                        # Skip series with units not in allowed_units
+
+                metadata_message = f"Loaded metadata from {metadata_path}. Filtered {filtered_count}/{total_count} series with allowed units: {', '.join(allowed_units)}."
         else:
             metadata_message = f"Metadata file not found at {metadata_path}. Using series names as descriptions."
     except Exception as e:
         metadata_message = f"Could not load metadata descriptions: {str(e)}. Using series names as descriptions."
         descriptions = {}
+        units = {}
 
-    return descriptions, metadata_message
+    return descriptions, units, metadata_message
 
 def initialize_detector(parquet_folder=None):
     """
@@ -167,6 +192,7 @@ global_series_options = []
 global_min_date = None
 global_max_date = None
 metadata_descriptions = {}
+metadata_units = {}
 global_messages = {"success": "", "error": "", "metadata": ""}
 
 def create_graph_panel(panel_id, selected_series=None):
@@ -186,7 +212,7 @@ def create_graph_panel(panel_id, selected_series=None):
 
     # Pre-compute initial figure so each panel renders without interaction
     if selected_series and global_detector and global_detector.dataframes:
-        initial_figure = global_detector.plot_multiple_series(selected_series, 'Value')
+        initial_figure = global_detector.plot_multiple_series(selected_series, 'Value', units_dict=metadata_units)
     else:
         initial_figure = go.Figure()
         initial_figure.update_layout(
@@ -450,15 +476,23 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
         original_parquet_folder = os.environ.get('PARQUET_FOLDER')
         os.environ['PARQUET_FOLDER'] = parquet_folder.strip()
 
-        # Load metadata descriptions
-        metadata_descriptions, metadata_message = load_metadata_descriptions(parquet_folder.strip())
+        # Load metadata descriptions and units
+        global metadata_descriptions, metadata_units
+        metadata_descriptions, metadata_units, metadata_message = load_metadata_descriptions(parquet_folder.strip())
 
         # Reload data
         new_detector, new_series_options, new_min_date, new_max_date, success_message, error_message = initialize_detector(parquet_folder.strip())
 
+        # Filter series options to only include allowed units
+        allowed_units = {'kgf/cm² a', 'ºC', 'l', 'm3/d'}
+        filtered_series_options = [
+            option for option in new_series_options
+            if option['value'] in metadata_units and metadata_units[option['value']] in allowed_units
+        ]
+
         # Update global variables
         global_detector = new_detector
-        global_series_options = new_series_options
+        global_series_options = filtered_series_options
         global_min_date = new_min_date
         global_max_date = new_max_date
 
@@ -480,22 +514,22 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
         # Configure new slider parameters
         slider_min, slider_max, slider_value, slider_marks = configure_global_slider(new_min_date, new_max_date)
 
-        # Update series options for all checklists
-        series_options_list = [new_series_options] * len(checklist_ids)
+        # Update series options for all checklists (filtered)
+        series_options_list = [filtered_series_options] * len(checklist_ids)
 
         # Update selected values to ensure they exist in new options
         updated_values = []
         for values in checklist_values:
             if values:
-                # Keep only values that exist in new options
-                valid_values = [v for v in values if any(opt['value'] == v for opt in new_series_options)]
-                if not valid_values and new_series_options:
+                # Keep only values that exist in filtered options
+                valid_values = [v for v in values if any(opt['value'] == v for opt in filtered_series_options)]
+                if not valid_values and filtered_series_options:
                     # If no valid values, select first available
-                    valid_values = [new_series_options[0]['value']]
+                    valid_values = [filtered_series_options[0]['value']]
                 updated_values.append(valid_values)
             else:
                 # If no values selected, select first available
-                updated_values.append([new_series_options[0]['value']] if new_series_options else [])
+                updated_values.append([filtered_series_options[0]['value']] if filtered_series_options else [])
 
         # Update panels with new data
         panel_components = []
@@ -511,7 +545,7 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
         else:
             # Create default panel if none exist
             panel_id = str(uuid.uuid4())[:8]
-            default_series = [new_series_options[0]['value']] if new_series_options else []
+            default_series = [filtered_series_options[0]['value']] if filtered_series_options else []
             panel_components = [create_graph_panel(panel_id, default_series)]
 
         # Restore original environment variable
@@ -709,7 +743,7 @@ def update_individual_graph(selected_series, global_slider_value, graph_id):
         end_date = datetime.fromtimestamp(global_slider_value[1])
 
     # Create graph for this specific panel
-    return global_detector.plot_multiple_series(selected_series, 'Value', start_date, end_date)
+    return global_detector.plot_multiple_series(selected_series, 'Value', start_date, end_date, metadata_units)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8050)
