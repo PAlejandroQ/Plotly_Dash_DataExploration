@@ -210,53 +210,53 @@ class TimeSeriesAnomalyDetector:
             'hovermode': 'x unified',
             'showlegend': True,
             'height': 600,
-            # 'legend': dict(
-            #     orientation="v",
-            #     yanchor="top",
-            #     y=0.99,
-            #     xanchor="right",
-            #     x=0.99,
-            #     bgcolor='rgba(255, 255, 255, 0.9)',
-            #     bordercolor="Black",
-            #     borderwidth=1
-            # )
+            'legend': dict(
+                orientation="h",
+                yanchor="top",
+                y=-0.2,
+                xanchor="center",
+                x=0.5,
+                bgcolor='rgba(255, 255, 255, 0.9)',
+                bordercolor="Black",
+                borderwidth=1
+            )
         }
 
-        # Primary Y-axis (pressure)
+        # Primary Y-axis (pressure) - left side, default position
         if 'y' in used_axes:
             layout_updates['yaxis'] = dict(
                 title=dict(text="Pressure (kgf/cm² a)", font=dict(color="#1f77b4")),
                 side="left"
             )
 
-        # Secondary Y-axis (temperature)
-        if 'y2' in used_axes:
-            layout_updates['yaxis2'] = dict(
-                title=dict(text="Temperature (°C)", font=dict(color="#ff7f0e")),
-                anchor="free",
-                overlaying="y",
-                side="right",
-                position=0.85
-            )
-
-        # Third Y-axis (liters)
-        if 'y3' in used_axes:
-            layout_updates['yaxis3'] = dict(
-                title=dict(text="Volume (l)", font=dict(color="#2ca02c")),
-                anchor="free",
-                overlaying="y",
-                side="right",
-                position=0.95
-            )
-
-        # Fourth Y-axis (cubic meters per day)
+        # Fourth Y-axis (flow rate) - left side, to the left of pressure
         if 'y4' in used_axes:
             layout_updates['yaxis4'] = dict(
                 title=dict(text="Flow Rate (m³/d)", font=dict(color="#d62728")),
                 anchor="free",
                 overlaying="y",
                 side="left",
-                position=0.05
+                position=0.07
+            )
+
+        # Secondary Y-axis (temperature) - right side
+        if 'y2' in used_axes:
+            layout_updates['yaxis2'] = dict(
+                title=dict(text="Temperature (°C)", font=dict(color="#ff7f0e")),
+                anchor="free",
+                overlaying="y",
+                side="right",
+                position=1
+            )
+
+        # Third Y-axis (volume) - right side, extreme right
+        if 'y3' in used_axes:
+            layout_updates['yaxis3'] = dict(
+                title=dict(text="Volume (l)", font=dict(color="#2ca02c")),
+                anchor="free",
+                overlaying="y",
+                side="right",
+                position=0.93
             )
 
         fig.update_layout(**layout_updates)
