@@ -3,3 +3,5 @@
 .env
 .DS_Store
 *.parquet
+**/*events.json
+**/*metadata.json

@@ -130,6 +130,46 @@ def load_metadata_descriptions(parquet_folder=None):
 
     return descriptions, units, metadata_message
 
+# Load anomaly events from events.json file
+def load_anomaly_events(parquet_folder=None):
+    """Load anomaly events from events.json file containing timestamp ranges."""
+    events = []
+    events_message = ""
+
+    if parquet_folder is None:
+        return events, "No parquet folder specified for events loading."
+
+    try:
+        # Try multiple possible locations for events.json
+        possible_paths = [
+            os.path.join(parquet_folder, 'events.json'),
+            os.path.join(parquet_folder, 'POCO_MRO_003', 'events.json'),
+            'parquets/POCO_MRO_003/events.json'
+        ]
+
+        events_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                events_path = path
+                break
+
+        if events_path:
+            with open(events_path, 'r', encoding='utf-8') as f:
+                events_data = json.load(f)
+                # events.json contains a list of [start, end] timestamp pairs
+                if isinstance(events_data, list):
+                    events = events_data
+                    events_message = f"Loaded {len(events)} anomaly events from {events_path}."
+                else:
+                    events_message = f"Invalid format in events.json: expected list of timestamp pairs."
+        else:
+            events_message = f"Events file not found at {events_path}. No anomaly highlighting will be applied."
+    except Exception as e:
+        events_message = f"Could not load anomaly events: {str(e)}. No anomaly highlighting will be applied."
+        events = []
+
+    return events, events_message
+
 def initialize_detector(parquet_folder=None):
     """
     Initializes the detector by loading data from Parquet files only.
@@ -193,7 +233,8 @@ global_min_date = None
 global_max_date = None
 metadata_descriptions = {}
 metadata_units = {}
-global_messages = {"success": "", "error": "", "metadata": ""}
+global_anomaly_events = []
+global_messages = {"success": "", "error": "", "metadata": "", "events": ""}
 
 def create_graph_panel(panel_id, selected_series=None):
     """
@@ -212,7 +253,7 @@ def create_graph_panel(panel_id, selected_series=None):
 
     # Pre-compute initial figure so each panel renders without interaction
     if selected_series and global_detector and global_detector.dataframes:
-        initial_figure = global_detector.plot_multiple_series(selected_series, 'Value', units_dict=metadata_units)
+        initial_figure = global_detector.plot_multiple_series(selected_series, 'Value', units_dict=metadata_units, anomaly_events=global_anomaly_events)
     else:
         initial_figure = go.Figure()
         initial_figure.update_layout(
@@ -480,6 +521,10 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
         global metadata_descriptions, metadata_units
         metadata_descriptions, metadata_units, metadata_message = load_metadata_descriptions(parquet_folder.strip())
 
+        # Load anomaly events
+        global global_anomaly_events
+        global_anomaly_events, events_message = load_anomaly_events(parquet_folder.strip())
+
         # Reload data
         new_detector, new_series_options, new_min_date, new_max_date, success_message, error_message = initialize_detector(parquet_folder.strip())
 
@@ -504,6 +549,8 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
             messages.append(dbc.Alert(error_message, color="warning", dismissable=True))
         if metadata_message:
             messages.append(dbc.Alert(metadata_message, color="info", dismissable=True))
+        if events_message:
+            messages.append(dbc.Alert(events_message, color="info", dismissable=True))
 
         global_messages = {
             "success": success_message,
@@ -541,6 +588,7 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
                 valid_series = [s for s in selected_series if any(opt['value'] == s for opt in new_series_options)]
                 if not valid_series and new_series_options:
                     valid_series = [new_series_options[0]['value']]
+                # Create panel with anomaly events
                 panel_components.append(create_graph_panel(panel_id, valid_series))
         else:
             # Create default panel if none exist
@@ -743,7 +791,7 @@ def update_individual_graph(selected_series, global_slider_value, graph_id):
         end_date = datetime.fromtimestamp(global_slider_value[1])
 
     # Create graph for this specific panel
-    return global_detector.plot_multiple_series(selected_series, 'Value', start_date, end_date, metadata_units)
+    return global_detector.plot_multiple_series(selected_series, 'Value', start_date, end_date, metadata_units, global_anomaly_events)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8050)
