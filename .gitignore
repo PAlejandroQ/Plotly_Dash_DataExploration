@@ -5,3 +5,4 @@
 *.parquet
 **/*events.json
 **/*metadata.json
+parquets/*

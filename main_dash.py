@@ -159,16 +159,56 @@ def load_anomaly_events(parquet_folder=None):
                 # events.json contains a list of [start, end] timestamp pairs
                 if isinstance(events_data, list):
                     events = events_data
-                    events_message = f"Loaded {len(events)} anomaly events from {events_path}."
+                    events_message = f"Loaded {len(events)} base anomaly events from {events_path}."
                 else:
                     events_message = f"Invalid format in events.json: expected list of timestamp pairs."
         else:
-            events_message = f"Events file not found at {events_path}. No anomaly highlighting will be applied."
+            events_message = f"Events file not found at {events_path}. No base anomaly highlighting will be applied."
     except Exception as e:
-        events_message = f"Could not load anomaly events: {str(e)}. No anomaly highlighting will be applied."
+        events_message = f"Could not load base anomaly events: {str(e)}. No base anomaly highlighting will be applied."
         events = []
 
     return events, events_message
+
+# Load vigres events from events_from_vigres.json file
+def load_vigres_events(parquet_folder=None):
+    """Load vigres events from events_from_vigres.json file containing timestamp ranges."""
+    vigres_events = []
+    vigres_message = ""
+
+    if parquet_folder is None:
+        return vigres_events, "No parquet folder specified for vigres events loading."
+
+    try:
+        # Try multiple possible locations for events_from_vigres.json
+        possible_paths = [
+            os.path.join(parquet_folder, 'events_from_vigres.json'),
+            os.path.join(parquet_folder, 'POCO_MRO_003', 'events_from_vigres.json'),
+            'parquets/POCO_MRO_003/events_from_vigres.json'
+        ]
+
+        vigres_path = None
+        for path in possible_paths:
+            if os.path.exists(path):
+                vigres_path = path
+                break
+
+        if vigres_path:
+            with open(vigres_path, 'r', encoding='utf-8') as f:
+                vigres_data = json.load(f)
+                # events_from_vigres.json contains a list of [start, end] timestamp pairs
+                if isinstance(vigres_data, list):
+                    vigres_events = vigres_data
+                    vigres_message = f"Loaded {len(vigres_events)} vigres events from {vigres_path}."
+                else:
+                    vigres_message = f"Invalid format in events_from_vigres.json: expected list of timestamp pairs."
+        else:
+            vigres_message = f"Vigres events file not found at {vigres_path}. No vigres highlighting will be applied."
+    except Exception as e:
+        vigres_message = f"Could not load vigres events: {str(e)}. No vigres highlighting will be applied."
+        vigres_events = []
+
+    return vigres_events, vigres_message
 
 def initialize_detector(parquet_folder=None):
     """
@@ -253,7 +293,7 @@ def create_graph_panel(panel_id, selected_series=None):
 
     # Pre-compute initial figure so each panel renders without interaction
     if selected_series and global_detector and global_detector.dataframes:
-        initial_figure = global_detector.plot_multiple_series(selected_series, 'Value', units_dict=metadata_units, anomaly_events=global_anomaly_events)
+        initial_figure = global_detector.plot_multiple_series(selected_series, 'Value', units_dict=metadata_units, anomaly_events=global_anomaly_events, vigres_events=global_vigres_events)
     else:
         initial_figure = go.Figure()
         initial_figure.update_layout(
@@ -525,6 +565,10 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
         global global_anomaly_events
         global_anomaly_events, events_message = load_anomaly_events(parquet_folder.strip())
 
+        # Load vigres events
+        global global_vigres_events
+        global_vigres_events, vigres_message = load_vigres_events(parquet_folder.strip())
+
         # Reload data
         new_detector, new_series_options, new_min_date, new_max_date, success_message, error_message = initialize_detector(parquet_folder.strip())
 
@@ -551,20 +595,26 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
             messages.append(dbc.Alert(metadata_message, color="info", dismissable=True))
         if events_message:
             messages.append(dbc.Alert(events_message, color="info", dismissable=True))
+        if vigres_message:
+            messages.append(dbc.Alert(vigres_message, color="info", dismissable=True))
 
         global_messages = {
             "success": success_message,
             "error": error_message,
-            "metadata": metadata_message
+            "metadata": metadata_message,
+            "events": events_message,
+            "vigres": vigres_message
         }
 
         # Configure new slider parameters
         slider_min, slider_max, slider_value, slider_marks = configure_global_slider(new_min_date, new_max_date)
 
         # Update series options for all checklists (filtered)
-        series_options_list = [filtered_series_options] * len(checklist_ids)
+        # Ensure we return a list with the correct number of elements for ALL output
+        series_options_list = [filtered_series_options] * len(checklist_ids) if checklist_ids else []
 
         # Update selected values to ensure they exist in new options
+        # Ensure we return a list with the correct number of elements for ALL output
         updated_values = []
         for values in checklist_values:
             if values:
@@ -572,11 +622,19 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
                 valid_values = [v for v in values if any(opt['value'] == v for opt in filtered_series_options)]
                 if not valid_values and filtered_series_options:
                     # If no valid values, select first available
-                    valid_values = [filtered_series_options[0]['value']]
+                    valid_values = [filtered_series_options[0]['value']] if filtered_series_options else []
                 updated_values.append(valid_values)
             else:
                 # If no values selected, select first available
                 updated_values.append([filtered_series_options[0]['value']] if filtered_series_options else [])
+
+        # Ensure the lists have the correct size for ALL outputs
+        if len(updated_values) != len(checklist_ids):
+            # Pad or truncate to match checklist_ids length
+            while len(updated_values) < len(checklist_ids):
+                updated_values.append([filtered_series_options[0]['value']] if filtered_series_options else [])
+            if len(updated_values) > len(checklist_ids):
+                updated_values = updated_values[:len(checklist_ids)]
 
         # Update panels with new data
         panel_components = []
@@ -607,8 +665,11 @@ def reload_data_from_folder(n_clicks, parquet_folder, checklist_ids, checklist_v
     except Exception as e:
         print(f"Error reloading data: {e}")
         error_alert = dbc.Alert(f"Unexpected error: {str(e)}", color="danger", dismissable=True)
-        # Return no updates on error
-        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, dash.no_update, [error_alert]
+        # Return appropriate values on error - cannot use dash.no_update for ALL outputs
+        # Return empty lists for checklist options and values, and no changes for others
+        empty_options = [] if checklist_ids else []
+        empty_values = [] if checklist_ids else []
+        return dash.no_update, dash.no_update, dash.no_update, dash.no_update, empty_options, empty_values, dash.no_update, [error_alert]
 
 # Callback to handle individual checkbox changes
 @app.callback(
@@ -791,7 +852,7 @@ def update_individual_graph(selected_series, global_slider_value, graph_id):
         end_date = datetime.fromtimestamp(global_slider_value[1])
 
     # Create graph for this specific panel
-    return global_detector.plot_multiple_series(selected_series, 'Value', start_date, end_date, metadata_units, global_anomaly_events)
+    return global_detector.plot_multiple_series(selected_series, 'Value', start_date, end_date, metadata_units, global_anomaly_events,vigres_events=global_vigres_events)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8050)

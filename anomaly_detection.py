@@ -141,7 +141,7 @@ class TimeSeriesAnomalyDetector:
         return fig
 
     def plot_multiple_series(self, series_names: List[str], target_col: str,
-                           start_date=None, end_date=None, units_dict=None, anomaly_events=None) -> go.Figure:
+                           start_date=None, end_date=None, units_dict=None, anomaly_events=None, vigres_events=None) -> go.Figure:
         """
         Creates an interactive combined visualization of multiple time series with multiple Y-axes.
 
@@ -281,7 +281,8 @@ class TimeSeriesAnomalyDetector:
                     if start_date is not None and end_date is not None:
                         # Only show anomalies that overlap with the visible date range
                         if x1_dt < start_date or x0_dt > end_date:
-                            continue  # Skip this anomaly event as it's outside the visible range
+                            print(f"Warning: Anomaly event {x0_str} - {x1_str} is outside the visible range")
+                            # continue  # Skip this anomaly event as it's outside the visible range
                     else:
                         continue
                     # Add vertical rectangle for anomaly region
@@ -291,7 +292,42 @@ class TimeSeriesAnomalyDetector:
                         line_width=0,
                         fillcolor="red",
                         opacity=0.2,
-                        layer="below"  # Ensure it appears behind the data
+                        layer="below",  # Ensure it appears behind the data
+                        name="events_base"
+                    )
+
+        # Add vigres event highlighting regions if provided
+        if vigres_events and len(vigres_events) > 0:
+            for event in vigres_events:
+                if len(event) >= 2:
+                    x0_str = event[0]  # Start timestamp as string
+                    x1_str = event[1]  # End timestamp as string
+
+                    # Convert timestamps to datetime objects for comparison
+                    try:
+                        x0_dt = pd.to_datetime(x0_str)
+                        x1_dt = pd.to_datetime(x1_str)
+                    except Exception as e:
+                        print(f"Warning: Could not parse vigres event timestamps {x0_str} - {x1_str}: {e}")
+                        continue
+
+                    # Filter vigres events by date range if provided
+                    if start_date is not None and end_date is not None:
+                        # Only show vigres events that overlap with the visible date range
+                        if x1_dt < start_date or x0_dt > end_date:
+                            print(f"Warning: Vigres event {x0_str} - {x1_str} is outside the visible range")
+                            # continue  # Skip this vigres event as it's outside the visible range
+                    else:
+                        continue
+                    # Add vertical rectangle for vigres event region
+                    fig.add_vrect(
+                        x0=x0_str,  # Keep as string for Plotly
+                        x1=x1_str,  # Keep as string for Plotly
+                        line_width=0,
+                        fillcolor="green",
+                        opacity=0.3,
+                        layer="below",  # Ensure it appears behind the data
+                        name="events_vigres"
                     )
 
         return fig
