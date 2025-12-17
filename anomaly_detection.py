@@ -224,7 +224,7 @@ class TimeSeriesAnomalyDetector:
         }
 
         # Primary Y-axis (pressure) - left side, default position
-        if 'y' in used_axes:
+        if 'y' in used_axes or True:
             layout_updates['yaxis'] = dict(
                 title=dict(text="Pressure (kgf/cm² a)", font=dict(color="#1f77b4")),
                 side="left"
@@ -262,6 +262,39 @@ class TimeSeriesAnomalyDetector:
 
         fig.update_layout(**layout_updates)
 
+        # Ensure primary Y-axis is always present by adding an invisible dummy trace if no data uses it
+        if 'y' not in used_axes:
+            # Find the earliest timestamp from all series being plotted to place the dummy point within range
+            dummy_timestamp = None
+            for series_name in series_names:
+                if series_name in self.dataframes:
+                    df = self.dataframes[series_name]
+                    # Filter by date range if provided
+                    if start_date is not None and end_date is not None:
+                        df_filtered = df[(df.index >= start_date) & (df.index <= end_date)]
+                    else:
+                        df_filtered = df
+
+                    if len(df_filtered) > 0:
+                        series_min_date = df_filtered.index.min()
+                        if dummy_timestamp is None or series_min_date < dummy_timestamp:
+                            dummy_timestamp = series_min_date
+
+            # Use the earliest timestamp found, or fallback to a reasonable default
+            if dummy_timestamp is None:
+                dummy_timestamp = pd.Timestamp('2020-01-01')  # Fallback if no data found
+
+            # Add an invisible dummy scatter trace to force the y-axis to appear
+            fig.add_trace(go.Scatter(
+                x=[dummy_timestamp],  # Use timestamp within actual data range
+                y=[0],  # Dummy value
+                mode='markers',
+                marker=dict(size=0, color='rgba(0,0,0,0)'),  # Invisible marker
+                showlegend=False,
+                hoverinfo='skip',
+                yaxis='y'
+            ))
+
         # Add anomaly highlighting regions if provided
         if anomaly_events and len(anomaly_events) > 0:
             for event in anomaly_events:
@@ -282,7 +315,7 @@ class TimeSeriesAnomalyDetector:
                         # Only show anomalies that overlap with the visible date range
                         if x1_dt < start_date or x0_dt > end_date:
                             print(f"Warning: Anomaly event {x0_str} - {x1_str} is outside the visible range")
-                            # continue  # Skip this anomaly event as it's outside the visible range
+                            continue  # Skip this anomaly event as it's outside the visible range
                     else:
                         continue
                     # Add vertical rectangle for anomaly region
@@ -316,7 +349,7 @@ class TimeSeriesAnomalyDetector:
                         # Only show vigres events that overlap with the visible date range
                         if x1_dt < start_date or x0_dt > end_date:
                             print(f"Warning: Vigres event {x0_str} - {x1_str} is outside the visible range")
-                            # continue  # Skip this vigres event as it's outside the visible range
+                            continue  # Skip this vigres event as it's outside the visible range
                     else:
                         continue
                     # Add vertical rectangle for vigres event region
