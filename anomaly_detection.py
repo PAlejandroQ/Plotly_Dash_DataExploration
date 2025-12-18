@@ -3,6 +3,7 @@ import numpy as np
 import polars as pl
 import plotly.graph_objects as go
 from typing import Dict, List, Optional
+from datetime import datetime
 
 
 class TimeSeriesAnomalyDetector:
@@ -24,6 +25,41 @@ class TimeSeriesAnomalyDetector:
         if series_data:
             for name, df in series_data.items():
                 self.add_series(name, df)
+
+    def _format_event_name(self, x0_str: str, x1_str: str) -> str:
+        """
+        Formats event name for legend display based on date range.
+
+        Args:
+            x0_str: Start time string in format '2023-02-27T02:02:00'
+            x1_str: End time string in format '2023-02-27T02:02:00'
+
+        Returns:
+            Formatted string like '2023/02/27_02-2023/02/27_03' or '2023/02/27_02:15-03:15'
+        """
+        try:
+            # Parse datetime strings
+            dt0 = datetime.fromisoformat(x0_str.replace('Z', '+00:00'))
+            dt1 = datetime.fromisoformat(x1_str.replace('Z', '+00:00'))
+
+            # Format date part
+            date0 = dt0.strftime('%Y/%m/%d')
+            date1 = dt1.strftime('%Y/%m/%d')
+
+            # Format time part (hours only for different dates, hours:minutes for same date)
+            if date0 == date1:
+                # Same date: show hours and minutes
+                time0 = dt0.strftime('%H:%M')
+                time1 = dt1.strftime('%H:%M')
+                return f'{date0}_{time0}-{time1}'
+            else:
+                # Different dates: show date and hour for each
+                hour0 = dt0.strftime('%H')
+                hour1 = dt1.strftime('%H')
+                return f'{date0}_{hour0}-{date1}_{hour1}'
+        except Exception as e:
+            # Fallback to original format if parsing fails
+            return f'{x0_str}-{x1_str}'
 
     def add_series(self, name: str, df: pd.DataFrame) -> None:
         """
@@ -141,7 +177,7 @@ class TimeSeriesAnomalyDetector:
         return fig
 
     def plot_multiple_series(self, series_names: List[str], target_col: str,
-                           start_date=None, end_date=None, units_dict=None, anomaly_events=None, vigres_events=None) -> go.Figure:
+                           start_date=None, end_date=None, units_dict=None, anomaly_events=None, vigres_events=None) -> tuple[go.Figure, List[Dict]]:
         """
         Creates an interactive combined visualization of multiple time series with multiple Y-axes.
 
@@ -152,9 +188,12 @@ class TimeSeriesAnomalyDetector:
             end_date: Optional end date to filter the data
             units_dict: Dictionary mapping series names to their units
             anomaly_events: Optional list of [start, end] timestamp pairs for anomaly highlighting
+            vigres_events: Optional list of [start, end] timestamp pairs for vigres event highlighting
 
         Returns:
-            Plotly figure with the combined visualization
+            Tuple containing:
+            - Plotly figure with the combined visualization
+            - List of visible events with their metadata for button creation
         """
         # Create base figure
         fig = go.Figure()
@@ -172,6 +211,9 @@ class TimeSeriesAnomalyDetector:
 
         # Track which axes are used
         used_axes = set()
+
+        # Collect visible events for button creation
+        visible_events = []
 
         for i, series_name in enumerate(series_names):
             if series_name not in self.dataframes:
@@ -326,8 +368,19 @@ class TimeSeriesAnomalyDetector:
                         fillcolor="red",
                         opacity=0.2,
                         layer="below",  # Ensure it appears behind the data
-                        name="events_base"
+                        name=self._format_event_name(x0_str, x1_str),
+                        showlegend=False
                     )
+
+                    # Collect event info for button creation
+                    visible_events.append({
+                        'id': f"anomaly_{len(visible_events)}",
+                        'type': 'anomaly',
+                        'name': self._format_event_name(x0_str, x1_str),
+                        'start': x0_str,
+                        'end': x1_str,
+                        'color': 'red'
+                    })
 
         # Add vigres event highlighting regions if provided
         if vigres_events and len(vigres_events) > 0:
@@ -360,10 +413,21 @@ class TimeSeriesAnomalyDetector:
                         fillcolor="green",
                         opacity=0.3,
                         layer="below",  # Ensure it appears behind the data
-                        name="events_vigres"
+                        name=self._format_event_name(x0_str, x1_str),
+                        showlegend=False
                     )
 
-        return fig
+                    # Collect event info for button creation
+                    visible_events.append({
+                        'id': f"vigres_{len(visible_events)}",
+                        'type': 'vigres',
+                        'name': self._format_event_name(x0_str, x1_str),
+                        'start': x0_str,
+                        'end': x1_str,
+                        'color': 'green'
+                    })
+
+        return fig, visible_events
 
     def load_series_from_csv(self, file_path: str, target_col: str = 'Value') -> List[Dict[str, str]]:
         """

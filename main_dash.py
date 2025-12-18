@@ -293,7 +293,7 @@ def create_graph_panel(panel_id, selected_series=None):
 
     # Pre-compute initial figure so each panel renders without interaction
     if selected_series and global_detector and global_detector.dataframes:
-        initial_figure = global_detector.plot_multiple_series(selected_series, 'Value', units_dict=metadata_units, anomaly_events=global_anomaly_events, vigres_events=global_vigres_events)
+        initial_figure, _ = global_detector.plot_multiple_series(selected_series, 'Value', units_dict=metadata_units, anomaly_events=global_anomaly_events, vigres_events=global_vigres_events)
     else:
         initial_figure = go.Figure()
         initial_figure.update_layout(
@@ -361,13 +361,21 @@ def create_graph_panel(panel_id, selected_series=None):
                                     # Add all tooltips
                                     *[tooltip for tooltip in tooltips],
                                     html.Hr(className="my-3"),
+                                    html.H6("Events", className="fw-bold"),
+                                    html.Div(
+                                        id={'type': 'events-buttons-container', 'index': panel_id},
+                                        style={"maxHeight": "200px", "overflowY": "auto", "width": "100%"}
+                                    ),
+                                    html.Hr(className="my-3"),
                                     dbc.Button(
                                         "×",
                                         id={'type': 'delete-graph-button', 'index': panel_id},
                                         color="danger",
                                         size="sm",
                                         style={"fontSize": "18px", "padding": "0 8px"}
-                                    )
+                                    ),
+                                    # Store for events data
+                                    dcc.Store(id={'type': 'events-store', 'index': panel_id}, data=[])
                                 ]),
                                 className="h-100"
                             )
@@ -852,7 +860,142 @@ def update_individual_graph(selected_series, global_slider_value, graph_id):
         end_date = datetime.fromtimestamp(global_slider_value[1])
 
     # Create graph for this specific panel
-    return global_detector.plot_multiple_series(selected_series, 'Value', start_date, end_date, metadata_units, global_anomaly_events,vigres_events=global_vigres_events)
+    fig, visible_events = global_detector.plot_multiple_series(selected_series, 'Value', start_date, end_date, metadata_units, global_anomaly_events,vigres_events=global_vigres_events)
+    return fig
+
+@app.callback(
+    [Output({'type': 'events-buttons-container', 'index': MATCH}, 'children'),
+     Output({'type': 'events-store', 'index': MATCH}, 'data')],
+    [Input({'type': 'series-selector-checklist', 'index': MATCH}, 'value'),
+     Input('global-range-slider', 'value')],
+    [State({'type': 'events-buttons-container', 'index': MATCH}, 'id')],
+    prevent_initial_call=True
+)
+def update_events_buttons(selected_series, global_slider_value, container_id):
+    """
+    Callback to update the events buttons container.
+    """
+    panel_id = container_id['index']
+
+    if not selected_series or not global_detector.dataframes:
+        return html.Div("No events available", style={"fontSize": "12px", "color": "#666"})
+
+    # Convert global slider values to datetime
+    start_date = None
+    end_date = None
+    if global_slider_value and len(global_slider_value) == 2:
+        start_date = datetime.fromtimestamp(global_slider_value[0])
+        end_date = datetime.fromtimestamp(global_slider_value[1])
+
+    # Get visible events
+    _, visible_events = global_detector.plot_multiple_series(selected_series, 'Value', start_date, end_date, metadata_units, global_anomaly_events, vigres_events=global_vigres_events)
+
+    if not visible_events:
+        return html.Div("No events in current view", style={"fontSize": "12px", "color": "#666"}), visible_events
+
+    # Create buttons for each visible event
+    buttons = []
+    for i, event in enumerate(visible_events):
+        color = "danger" if event['type'] == 'anomaly' else "success"
+        buttons.append(
+            dbc.Button(
+                event['name'],
+                id={'type': 'event-focus-button', 'index': f"{panel_id}_{i}"},
+                color=color,
+                size="sm",
+                className="mb-1 me-1",
+                style={"fontSize": "11px", "padding": "2px 6px", "width": "100%"},
+                n_clicks=0
+            )
+        )
+
+    return html.Div(buttons, style={"display": "flex", "flexDirection": "column"}), visible_events
+
+@app.callback(
+    Output({'type': 'anomalies-graph', 'index': MATCH}, 'figure', allow_duplicate=True),
+    Input({'type': 'event-focus-button', 'index': ALL}, 'n_clicks'),
+    [State({'type': 'events-store', 'index': MATCH}, 'data'),
+     State({'type': 'anomalies-graph', 'index': MATCH}, 'figure'),
+     State({'type': 'anomalies-graph', 'index': MATCH}, 'id'),
+     State('global-range-slider', 'value')],
+    prevent_initial_call=True
+)
+def focus_event(n_clicks_list, events_data, current_figure, graph_id, slider_value):
+    """
+    Callback to handle event focus button clicks and zoom to the selected event.
+    """
+    import plotly.graph_objects as go
+    from datetime import datetime
+
+    # Find which button was clicked
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
+
+    triggered_id = ctx.triggered[0]['prop_id']
+    if not triggered_id:
+        return dash.no_update
+
+    # Extract panel_id and button index from the triggered ID
+    import json
+    try:
+        button_info = json.loads(triggered_id.split('.')[0])
+        panel_id = button_info['index'].split('_')[0]
+        event_index = int(button_info['index'].split('_')[1])
+    except (json.JSONDecodeError, IndexError, ValueError):
+        return dash.no_update
+
+    # Check if the graph_id matches the panel
+    if graph_id['index'] != panel_id:
+        return dash.no_update
+
+    # Get the event data
+    if not events_data or event_index >= len(events_data):
+        return dash.no_update
+
+    event = events_data[event_index]
+
+    # Parse event times
+    try:
+        start_time = pd.to_datetime(event['start'])
+        end_time = pd.to_datetime(event['end'])
+    except Exception as e:
+        print(f"Error parsing event times: {e}")
+        return dash.no_update
+
+    # Check if event is visible in current range
+    current_start = None
+    current_end = None
+    if slider_value and len(slider_value) == 2:
+        current_start = datetime.fromtimestamp(slider_value[0])
+        current_end = datetime.fromtimestamp(slider_value[1])
+
+    if current_start and current_end:
+        if end_time < current_start or start_time > current_end:
+            # Event is outside current range - show feedback (you could add a toast notification here)
+            print(f"Event {event['name']} is outside the current visible range")
+            return dash.no_update
+
+    # Calculate proportional zoom
+    duration = end_time - start_time
+    if duration.total_seconds() == 0:
+        # Handle zero-duration events
+        padding = pd.Timedelta(hours=1)  # Default 1 hour padding
+    else:
+        # 50% padding on each side
+        padding = duration * 0.5
+
+    new_start = start_time - padding
+    new_end = end_time + padding
+
+    # Update figure with new range
+    fig = go.Figure(current_figure)
+    fig.update_layout(
+        xaxis_range=[new_start.isoformat(), new_end.isoformat()],
+        transition_duration=500  # Smooth transition
+    )
+
+    return fig
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8050)
