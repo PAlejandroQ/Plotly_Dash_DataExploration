@@ -1109,8 +1109,8 @@ def handle_event_zoom(n_clicks_list, graph_store_data, button_ids, events_data_l
 
         # Calculate zoom range
         duration = end_time - start_time
-        if duration.total_seconds() == 0:
-            padding = pd.Timedelta(hours=1)
+        if duration.total_seconds() < 86400:
+            padding = pd.Timedelta(hours=96)
         else:
             padding = duration * 0.5
 
