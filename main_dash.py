@@ -939,7 +939,7 @@ def update_events_buttons(selected_series, global_slider_value, container_id):
     panel_id = container_id['index']
 
     if not selected_series or not global_detector.dataframes:
-        return html.Div("No events available", style={"fontSize": "12px", "color": "#666"})
+        return [html.Div("No events available", style={"fontSize": "12px", "color": "#666"})], []
 
     # Convert global slider values to datetime
     start_date = None
@@ -952,7 +952,7 @@ def update_events_buttons(selected_series, global_slider_value, container_id):
     _, visible_events = global_detector.plot_multiple_series(selected_series, 'Value', start_date, end_date, metadata_units, global_anomaly_events, vigres_events=global_vigres_events)
 
     if not visible_events:
-        return html.Div("No events in current view", style={"fontSize": "12px", "color": "#666"}), visible_events
+        return [html.Div("No events in current view", style={"fontSize": "12px", "color": "#666"})], visible_events
 
     # Create buttons for each visible event
     buttons = []
@@ -970,7 +970,7 @@ def update_events_buttons(selected_series, global_slider_value, container_id):
             )
         )
 
-    return html.Div(buttons, style={"display": "flex", "flexDirection": "column"}), visible_events
+    return [html.Div(buttons, style={"display": "flex", "flexDirection": "column"})], visible_events
 
 @app.callback(
     Output('graph-store', 'data', allow_duplicate=True),
