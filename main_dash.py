@@ -824,27 +824,71 @@ def manage_graph_panels(add_clicks, delete_clicks, series_values, current_panels
 
 @app.callback(
     Output({'type': 'anomalies-graph', 'index': MATCH}, 'figure'),
-    [Input({'type': 'series-selector-checklist', 'index': MATCH}, 'value'),
+    [Input('graph-store', 'data'),
+     Input({'type': 'series-selector-checklist', 'index': MATCH}, 'value'),
      Input('global-range-slider', 'value')],
     [State({'type': 'anomalies-graph', 'index': MATCH}, 'id')],
     prevent_initial_call=True
 )
-def update_individual_graph(selected_series, global_slider_value, graph_id):
+def update_graph_with_zoom(store_data, selected_series, global_slider_value, graph_id):
     """
-    Callback to update individual graphs using MATCH pattern.
+    Update graph with zoom if zoom_event exists in panel data.
     """
     panel_id = graph_id['index']
+    print(f"📊 Updating graph for panel {panel_id}")
+
+    # Find panel data
+    panel_data = None
+    if store_data:
+        for panel in store_data:
+            if panel['id'] == panel_id:
+                panel_data = panel
+                break
+
+    if not panel_data:
+        print(f"❌ Panel {panel_id} not found in store")
+        return dash.no_update
+
+    # Check if there's a zoom event to apply
+    zoom_event = panel_data.get('zoom_event')
+    if zoom_event:
+        print(f"🔍 Applying zoom for panel {panel_id}: {zoom_event['start']} - {zoom_event['end']}")
+
+        # Use zoom range instead of global slider range
+        start_date = pd.to_datetime(zoom_event['start'])
+        end_date = pd.to_datetime(zoom_event['end'])
+
+        # Check if zoom event is recent (within last 2 seconds)
+        zoom_timestamp = pd.to_datetime(zoom_event.get('timestamp', '2000-01-01'))
+        time_diff = pd.Timestamp.now() - zoom_timestamp
+
+        if time_diff.total_seconds() > 2:
+            print("⏰ Zoom event expired, using global range")
+            panel_data['zoom_event'] = None
+            # Use global slider range
+            if global_slider_value and len(global_slider_value) == 2:
+                start_date = datetime.fromtimestamp(global_slider_value[0])
+                end_date = datetime.fromtimestamp(global_slider_value[1])
+            else:
+                start_date = None
+                end_date = None
+        else:
+            print("✅ Using zoom range for graph update")
+    else:
+        # Use global slider range
+        if global_slider_value and len(global_slider_value) == 2:
+            start_date = datetime.fromtimestamp(global_slider_value[0])
+            end_date = datetime.fromtimestamp(global_slider_value[1])
+        else:
+            start_date = None
+            end_date = None
 
     if not selected_series or not global_detector.dataframes:
-        # If no series are selected or no data is loaded, show appropriate message
+        # Return empty figure
         import plotly.graph_objects as go
         fig = go.Figure()
-        if not global_detector.dataframes:
-            title = "No data loaded yet. Click 'Apply' to load data from parquet folder."
-        else:
-            title = "Select at least one time series"
         fig.update_layout(
-            title=title,
+            title="No data loaded yet. Click 'Apply' to load data from parquet folder.",
             xaxis_title="Time",
             yaxis_title="Value",
             showlegend=False,
@@ -852,15 +896,13 @@ def update_individual_graph(selected_series, global_slider_value, graph_id):
         )
         return fig
 
-    # Convert global slider values to datetime
-    start_date = None
-    end_date = None
-    if global_slider_value and len(global_slider_value) == 2:
-        start_date = datetime.fromtimestamp(global_slider_value[0])
-        end_date = datetime.fromtimestamp(global_slider_value[1])
+    # Create graph with appropriate range
+    fig, visible_events = global_detector.plot_multiple_series(
+        selected_series, 'Value', start_date, end_date,
+        metadata_units, global_anomaly_events, vigres_events=global_vigres_events
+    )
 
-    # Create graph for this specific panel
-    fig, visible_events = global_detector.plot_multiple_series(selected_series, 'Value', start_date, end_date, metadata_units, global_anomaly_events,vigres_events=global_vigres_events)
+    print(f"📈 Graph updated for panel {panel_id}")
     return fig
 
 @app.callback(
@@ -912,90 +954,124 @@ def update_events_buttons(selected_series, global_slider_value, container_id):
     return html.Div(buttons, style={"display": "flex", "flexDirection": "column"}), visible_events
 
 @app.callback(
-    Output({'type': 'anomalies-graph', 'index': MATCH}, 'figure', allow_duplicate=True),
+    Output('graph-store', 'data', allow_duplicate=True),
     Input({'type': 'event-focus-button', 'index': ALL}, 'n_clicks'),
-    [State({'type': 'events-store', 'index': MATCH}, 'data'),
-     State({'type': 'anomalies-graph', 'index': MATCH}, 'figure'),
-     State({'type': 'anomalies-graph', 'index': MATCH}, 'id'),
-     State('global-range-slider', 'value')],
+    [State('graph-store', 'data'),
+     State({'type': 'event-focus-button', 'index': ALL}, 'id'),
+     State({'type': 'events-store', 'index': ALL}, 'data'),
+     State({'type': 'events-store', 'index': ALL}, 'id')],
     prevent_initial_call=True
 )
-def focus_event(n_clicks_list, events_data, current_figure, graph_id, slider_value):
+def handle_event_zoom(n_clicks_list, graph_store_data, button_ids, events_data_list, events_store_ids):
     """
-    Callback to handle event focus button clicks and zoom to the selected event.
+    Handle event focus button clicks by updating the store with zoom information.
+    This will trigger the graph updates through the existing update_individual_graph callback.
     """
-    import plotly.graph_objects as go
-    from datetime import datetime
+    # Check if any button was actually clicked (n_clicks > 0)
+    if not n_clicks_list or all(clicks == 0 for clicks in n_clicks_list):
+        # No button was clicked, return no update
+        return dash.no_update
+    """
+    Handle event focus button clicks by updating the store with zoom information.
+    This will trigger the graph updates through the existing update_individual_graph callback.
+    """
+    print("🎯 EVENT ZOOM HANDLER!")
+    print(f"Graph store type: {type(graph_store_data)}")
+    print(f"Graph store: {graph_store_data}")
 
-    # Find which button was clicked
+    if graph_store_data:
+        print(f"Graph store length: {len(graph_store_data)}")
+        if len(graph_store_data) > 0:
+            print(f"First element type: {type(graph_store_data[0])}")
+            print(f"First element: {graph_store_data[0]}")
+
+    print(f"Button IDs: {len(button_ids) if button_ids else 0}")
+    print(f"Events store IDs: {len(events_store_ids) if events_store_ids else 0}")
+
+    # Check which button was clicked
     ctx = dash.callback_context
     if not ctx.triggered:
+        print("No trigger detected")
         return dash.no_update
 
     triggered_id = ctx.triggered[0]['prop_id']
-    if not triggered_id:
-        return dash.no_update
+    print(f"Triggered by: {triggered_id}")
 
-    # Extract panel_id and button index from the triggered ID
+    # Parse the button info
     import json
     try:
         button_info = json.loads(triggered_id.split('.')[0])
-        panel_id = button_info['index'].split('_')[0]
-        event_index = int(button_info['index'].split('_')[1])
-    except (json.JSONDecodeError, IndexError, ValueError):
-        return dash.no_update
+        button_panel_id = button_info['index'].split('_')[0]
+        button_index = int(button_info['index'].split('_')[1])
 
-    # Check if the graph_id matches the panel
-    if graph_id['index'] != panel_id:
-        return dash.no_update
+        print(f"🎯 BUTTON CLICK: Panel {button_panel_id}, Event {button_index}")
 
-    # Get the event data
-    if not events_data or event_index >= len(events_data):
-        return dash.no_update
-
-    event = events_data[event_index]
-
-    # Parse event times
-    try:
-        start_time = pd.to_datetime(event['start'])
-        end_time = pd.to_datetime(event['end'])
-    except Exception as e:
-        print(f"Error parsing event times: {e}")
-        return dash.no_update
-
-    # Check if event is visible in current range
-    current_start = None
-    current_end = None
-    if slider_value and len(slider_value) == 2:
-        current_start = datetime.fromtimestamp(slider_value[0])
-        current_end = datetime.fromtimestamp(slider_value[1])
-
-    if current_start and current_end:
-        if end_time < current_start or start_time > current_end:
-            # Event is outside current range - show feedback (you could add a toast notification here)
-            print(f"Event {event['name']} is outside the current visible range")
+        # Validate graph_store_data structure
+        if not graph_store_data or not isinstance(graph_store_data, list):
+            print("❌ Graph store data is not a valid list")
             return dash.no_update
 
-    # Calculate proportional zoom
-    duration = end_time - start_time
-    if duration.total_seconds() == 0:
-        # Handle zero-duration events
-        padding = pd.Timedelta(hours=1)  # Default 1 hour padding
-    else:
-        # 50% padding on each side
-        padding = duration * 0.5
+        # Find the corresponding panel in graph store
+        target_panel = None
+        for panel in graph_store_data:
+            if isinstance(panel, dict) and panel.get('id') == button_panel_id:
+                target_panel = panel
+                break
 
-    new_start = start_time - padding
-    new_end = end_time + padding
+        if not target_panel:
+            print(f"❌ Panel {button_panel_id} not found in graph store")
+            return dash.no_update
 
-    # Update figure with new range
-    fig = go.Figure(current_figure)
-    fig.update_layout(
-        xaxis_range=[new_start.isoformat(), new_end.isoformat()],
-        transition_duration=500  # Smooth transition
-    )
+        print(f"✅ Found panel {button_panel_id}")
 
-    return fig
+        # Find the corresponding events data by matching panel IDs
+        events_data = None
+        for i, store_id in enumerate(events_store_ids):
+            if store_id['index'] == button_panel_id:
+                events_data = events_data_list[i]
+                break
+
+        if not events_data or button_index >= len(events_data):
+            print(f"❌ Invalid event index {button_index} for {len(events_data) if events_data else 0} events")
+            return dash.no_update
+
+        event = events_data[button_index]
+        print(f"Event: {event.get('name', 'Unknown')}")
+
+        # Parse event times
+        start_time = pd.to_datetime(event['start'])
+        end_time = pd.to_datetime(event['end'])
+        print(f"Event time: {start_time} to {end_time}")
+
+        # Calculate zoom range
+        duration = end_time - start_time
+        if duration.total_seconds() == 0:
+            padding = pd.Timedelta(hours=1)
+        else:
+            padding = duration * 0.5
+
+        zoom_start = start_time - padding
+        zoom_end = end_time + padding
+
+        print(f"Zoom range: {zoom_start} - {zoom_end}")
+
+        # Create zoom info to store in panel data
+        target_panel['zoom_event'] = {
+            'start': zoom_start.isoformat(),
+            'end': zoom_end.isoformat(),
+            'timestamp': pd.Timestamp.now().isoformat()
+        }
+
+        print("✅ Zoom info stored in panel data")
+        return graph_store_data
+
+    except Exception as e:
+        print(f"❌ Error in handle_event_zoom: {e}")
+        import traceback
+        traceback.print_exc()
+        return dash.no_update
+
+
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8050)
