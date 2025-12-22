@@ -367,13 +367,22 @@ def create_graph_panel(panel_id, selected_series=None):
                                         style={"maxHeight": "200px", "overflowY": "auto", "width": "100%"}
                                     ),
                                     html.Hr(className="my-3"),
-                                    dbc.Button(
-                                        "×",
-                                        id={'type': 'delete-graph-button', 'index': panel_id},
-                                        color="danger",
-                                        size="sm",
-                                        style={"fontSize": "18px", "padding": "0 8px"}
-                                    ),
+                                    html.Div([
+                                        dbc.Button(
+                                            "Reset axes",
+                                            id={'type': 'reset-axes-button', 'index': panel_id},
+                                            color="secondary",
+                                            size="sm",
+                                            style={"fontSize": "11px", "marginRight": "5px", "padding": "2px 6px"}
+                                        ),
+                                        dbc.Button(
+                                            "×",
+                                            id={'type': 'delete-graph-button', 'index': panel_id},
+                                            color="danger",
+                                            size="sm",
+                                            style={"fontSize": "18px", "padding": "0 8px"}
+                                        ),
+                                    ], style={"display": "flex", "justifyContent": "space-between", "alignItems": "center"}),
                                     # Store for events data
                                     dcc.Store(id={'type': 'events-store', 'index': panel_id}, data=[])
                                 ]),
@@ -725,12 +734,13 @@ def update_series_selector_from_individual_checkboxes(individual_values, individ
      Output('global-range-slider', 'marks', allow_duplicate=True)],
     [Input('add-graph-button', 'n_clicks'),
      Input({'type': 'delete-graph-button', 'index': ALL}, 'n_clicks'),
+     Input({'type': 'reset-axes-button', 'index': ALL}, 'n_clicks'),
      Input({'type': 'series-selector-checklist', 'index': ALL}, 'value')],
     [State('graph-store', 'data'),
      State('global-range-slider', 'value')],
     prevent_initial_call=True
 )
-def manage_graph_panels(add_clicks, delete_clicks, series_values, current_panels, current_slider_value):
+def manage_graph_panels(add_clicks, delete_clicks, reset_clicks, series_values, current_panels, current_slider_value):
     """
     Callback to manage the creation and deletion of panels.
     """
@@ -749,6 +759,7 @@ def manage_graph_panels(add_clicks, delete_clicks, series_values, current_panels
     if current_panels is None:
         current_panels = []
     series_values = series_values or []
+    reset_clicks = reset_clicks or []
 
     # Update stored selections for current panels
     for idx, panel in enumerate(current_panels):
@@ -765,6 +776,14 @@ def manage_graph_panels(add_clicks, delete_clicks, series_values, current_panels
     elif isinstance(trigger_id, dict) and trigger_id.get('type') == 'delete-graph-button':
         delete_index = trigger_id['index']
         current_panels = [panel for panel in current_panels if panel['id'] != delete_index]
+    elif isinstance(trigger_id, dict) and trigger_id.get('type') == 'reset-axes-button':
+        # Reset axes for the specific panel - clear zoom event
+        reset_panel_id = trigger_id['index']
+        for panel in current_panels:
+            if panel['id'] == reset_panel_id:
+                if 'zoom_event' in panel:
+                    del panel['zoom_event']
+                break
 
     # Ensure at least one panel exists
     if not current_panels:
@@ -952,6 +971,51 @@ def update_events_buttons(selected_series, global_slider_value, container_id):
         )
 
     return html.Div(buttons, style={"display": "flex", "flexDirection": "column"}), visible_events
+
+@app.callback(
+    Output('graph-store', 'data', allow_duplicate=True),
+    Input({'type': 'reset-axes-button', 'index': ALL}, 'n_clicks'),
+    [State('graph-store', 'data'),
+     State({'type': 'reset-axes-button', 'index': ALL}, 'id'),
+     State('global-range-slider', 'value')],
+    prevent_initial_call=True
+)
+def handle_reset_axes(n_clicks_list, graph_store_data, button_ids, global_slider_value):
+    """
+    Handle reset axes button clicks by clearing any zoom events and applying the global slider range.
+    """
+    # Check if any reset button was actually clicked
+    if not n_clicks_list or all(clicks == 0 for clicks in n_clicks_list):
+        return dash.no_update
+
+    # Find which button was clicked
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return dash.no_update
+
+    triggered_id = ctx.triggered[0]['prop_id']
+    import json
+    try:
+        button_info = json.loads(triggered_id.split('.')[0])
+        panel_id = button_info['index']
+
+        print(f"🔄 RESET AXES: Panel {panel_id}")
+
+        # Find the panel in graph store
+        if graph_store_data:
+            for panel in graph_store_data:
+                if isinstance(panel, dict) and panel.get('id') == panel_id:
+                    # Clear any zoom event
+                    if 'zoom_event' in panel:
+                        del panel['zoom_event']
+                        print(f"🗑️ Cleared zoom event for panel {panel_id}")
+                    break
+
+        return graph_store_data
+
+    except Exception as e:
+        print(f"❌ Error in handle_reset_axes: {e}")
+        return dash.no_update
 
 @app.callback(
     Output('graph-store', 'data', allow_duplicate=True),
