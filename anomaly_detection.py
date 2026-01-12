@@ -188,7 +188,7 @@ class TimeSeriesAnomalyDetector:
             end_date: Optional end date to filter the data
             units_dict: Dictionary mapping series names to their units
             anomaly_events: Optional list of [start, end] timestamp pairs for anomaly highlighting
-            vigres_events: Optional list of [start, end] timestamp pairs for vigres event highlighting
+            vigres_events: Optional list of event dictionaries with 'start', 'end', 'id', and 'description' keys for vigres event highlighting
 
         Returns:
             Tuple containing:
@@ -385,9 +385,11 @@ class TimeSeriesAnomalyDetector:
         # Add vigres event highlighting regions if provided
         if vigres_events and len(vigres_events) > 0:
             for event in vigres_events:
-                if len(event) >= 2:
-                    x0_str = event[0]  # Start timestamp as string
-                    x1_str = event[1]  # End timestamp as string
+                if isinstance(event, dict) and 'start' in event and 'end' in event:
+                    x0_str = event['start']  # Start timestamp as string
+                    x1_str = event['end']  # End timestamp as string
+                    event_id = event.get('id', f"vigres_{len(visible_events)}")
+                    description = event.get('description', '')
 
                     # Convert timestamps to datetime objects for comparison
                     try:
@@ -419,12 +421,13 @@ class TimeSeriesAnomalyDetector:
 
                     # Collect event info for button creation
                     visible_events.append({
-                        'id': f"vigres_{len(visible_events)}",
+                        'id': event_id,
                         'type': 'vigres',
                         'name': self._format_event_name(x0_str, x1_str),
                         'start': x0_str,
                         'end': x1_str,
-                        'color': 'green'
+                        'color': 'green',
+                        'description': description
                     })
 
         return fig, visible_events

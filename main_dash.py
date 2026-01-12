@@ -172,7 +172,7 @@ def load_anomaly_events(parquet_folder=None):
 
 # Load vigres events from events_from_vigres.json file
 def load_vigres_events(parquet_folder=None):
-    """Load vigres events from events_from_vigres.json file containing timestamp ranges."""
+    """Load vigres events from events_from_vigres.csv file containing event data with timestamps and descriptions."""
     vigres_events = []
     vigres_message = ""
 
@@ -180,11 +180,12 @@ def load_vigres_events(parquet_folder=None):
         return vigres_events, "No parquet folder specified for vigres events loading."
 
     try:
-        # Try multiple possible locations for events_from_vigres.json
+        # Try multiple possible locations for events_from_vigres.csv
         possible_paths = [
-            os.path.join(parquet_folder, 'events_from_vigres.json'),
-            os.path.join(parquet_folder, 'POCO_MRO_003', 'events_from_vigres.json'),
-            'parquets/POCO_MRO_003/events_from_vigres.json'
+            os.path.join(parquet_folder, 'events_from_vigres.csv'),
+            os.path.join(parquet_folder, 'POCO_MRO_003', 'events_from_vigres.csv'),
+            os.path.join(parquet_folder, 'POCO_MRO_003_events', 'events_from_vigres.csv'),
+            'parquets/POCO_MRO_003_events/events_from_vigres.csv'
         ]
 
         vigres_path = None
@@ -194,16 +195,47 @@ def load_vigres_events(parquet_folder=None):
                 break
 
         if vigres_path:
-            with open(vigres_path, 'r', encoding='utf-8') as f:
-                vigres_data = json.load(f)
-                # events_from_vigres.json contains a list of [start, end] timestamp pairs
-                if isinstance(vigres_data, list):
-                    vigres_events = vigres_data
-                    vigres_message = f"Loaded {len(vigres_events)} vigres events from {vigres_path}."
-                else:
-                    vigres_message = f"Invalid format in events_from_vigres.json: expected list of timestamp pairs."
+            # Read CSV file
+            df = pd.read_csv(vigres_path)
+
+            # Check if required columns exist
+            required_columns = ['data', 'texto']
+            if not all(col in df.columns for col in required_columns):
+                vigres_message = f"CSV file missing required columns: {required_columns}"
+                return vigres_events, vigres_message
+
+            # Process each event to create 6-day windows (3 days before and after center)
+            for idx, row in df.iterrows():
+                try:
+                    # Parse center timestamp
+                    center_time = pd.to_datetime(row['data'])
+
+                    # Create 6-day window: 3 days before and 3 days after
+                    start_time = center_time - pd.Timedelta(days=3)
+                    end_time = center_time + pd.Timedelta(days=3)
+
+                    # Format timestamps as strings for consistency
+                    start_str = start_time.strftime('%Y-%m-%dT%H:%M:%S')
+                    end_str = end_time.strftime('%Y-%m-%dT%H:%M:%S')
+
+                    # Store event data including description
+                    event_data = {
+                        'id': row.get('idEvento', f'vigres_{idx}'),
+                        'start': start_str,
+                        'end': end_str,
+                        'description': str(row['texto']),
+                        'center_timestamp': row['data']
+                    }
+
+                    vigres_events.append(event_data)
+
+                except Exception as e:
+                    print(f"Warning: Could not process vigres event row {idx}: {e}")
+                    continue
+
+            vigres_message = f"Loaded {len(vigres_events)} vigres events from {vigres_path}."
         else:
-            vigres_message = f"Vigres events file not found at {vigres_path}. No vigres highlighting will be applied."
+            vigres_message = f"Vigres events file not found. No vigres highlighting will be applied."
     except Exception as e:
         vigres_message = f"Could not load vigres events: {str(e)}. No vigres highlighting will be applied."
         vigres_events = []
@@ -401,6 +433,24 @@ def create_graph_panel(panel_id, selected_series=None):
                                         figure=initial_figure
                                     )
                                 ]
+                            ),
+                            # Event description display area
+                            html.Div(
+                                id={'type': 'event-description-display', 'index': panel_id},
+                                style={
+                                    'marginTop': '10px',
+                                    'padding': '10px',
+                                    'border': '1px solid #ddd',
+                                    'borderRadius': '5px',
+                                    'backgroundColor': '#f9f9f9',
+                                    'minHeight': '3em',  # Approximately 2 lines
+                                    'maxHeight': '12em',  # Maximum 4 lines
+                                    'overflowY': 'auto',  # Scroll if content exceeds max height
+                                    'width': '100%',
+                                    'fontSize': '12px',
+                                    'lineHeight': '1.4'
+                                },
+                                children="Selecciona un evento para ver su descripción."
                             )
                         ], width=9)
                     ], className="g-3", align="stretch")
@@ -1135,7 +1185,81 @@ def handle_event_zoom(n_clicks_list, graph_store_data, button_ids, events_data_l
         traceback.print_exc()
         return dash.no_update
 
+@app.callback(
+    Output({'type': 'event-description-display', 'index': ALL}, 'children'),
+    Input({'type': 'event-focus-button', 'index': ALL}, 'n_clicks'),
+    [State({'type': 'event-focus-button', 'index': ALL}, 'id'),
+     State({'type': 'events-store', 'index': ALL}, 'data'),
+     State({'type': 'events-store', 'index': ALL}, 'id'),
+     State({'type': 'event-description-display', 'index': ALL}, 'id')],
+    prevent_initial_call=True
+)
+def update_event_description(n_clicks_list, button_ids, events_data_list, events_store_ids, description_display_ids):
+    """
+    Update the event description display when an event button is clicked.
+    """
+    # Check if any button was actually clicked (n_clicks > 0)
+    if not n_clicks_list or all(clicks == 0 for clicks in n_clicks_list):
+        # No button was clicked, return no update for all displays
+        return [dash.no_update] * len(description_display_ids)
 
+    # Check which button was clicked
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        return [dash.no_update] * len(description_display_ids)
+
+    triggered_id = ctx.triggered[0]['prop_id']
+
+    # Parse the button info
+    import json
+    try:
+        button_info = json.loads(triggered_id.split('.')[0])
+        button_panel_id = button_info['index'].split('_')[0]
+        button_index = int(button_info['index'].split('_')[1])
+
+        print(f"🎯 EVENT DESCRIPTION: Panel {button_panel_id}, Event {button_index}")
+
+        # Find the corresponding events data by matching panel IDs
+        events_data = None
+        for i, store_id in enumerate(events_store_ids):
+            if store_id['index'] == button_panel_id:
+                events_data = events_data_list[i]
+                break
+
+        if not events_data or button_index >= len(events_data):
+            print(f"❌ Invalid event index {button_index} for {len(events_data) if events_data else 0} events")
+            return [dash.no_update] * len(description_display_ids)
+
+        event = events_data[button_index]
+        print(f"Event: {event.get('name', 'Unknown')}")
+
+        # Get event description
+        description = event.get('description', 'No description available')
+        if pd.isna(description) or description == '':
+            description = 'No description available'
+
+        # Create description display content
+        description_content = html.Div([
+            html.Strong(f"Descripción del evento: {event.get('name', 'Unknown')}"),
+            html.Br(),
+            html.Div(description, style={'marginTop': '5px', 'whiteSpace': 'pre-wrap'})
+        ])
+
+        # Create response list - only update the display for the clicked panel
+        result = []
+        for desc_id in description_display_ids:
+            if desc_id['index'] == button_panel_id:
+                result.append(description_content)
+            else:
+                result.append(dash.no_update)
+
+        return result
+
+    except Exception as e:
+        print(f"❌ Error in update_event_description: {e}")
+        import traceback
+        traceback.print_exc()
+        return [dash.no_update] * len(description_display_ids)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=8050)
