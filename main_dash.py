@@ -450,7 +450,7 @@ def create_graph_panel(panel_id, selected_series=None):
                                     'fontSize': '12px',
                                     'lineHeight': '1.4'
                                 },
-                                children="Selecciona un evento para ver su descripción."
+                                children="Selecione um evento para ver sua descrição."
                             )
                         ], width=9)
                     ], className="g-3", align="stretch")
@@ -1240,7 +1240,7 @@ def update_event_description(n_clicks_list, button_ids, events_data_list, events
 
         # Create description display content
         description_content = html.Div([
-            html.Strong(f"Descripción del evento: {event.get('name', 'Unknown')}"),
+            html.Strong(f"Descrição do evento:: {event.get('name', 'Unknown')}"),
             html.Br(),
             html.Div(description, style={'marginTop': '5px', 'whiteSpace': 'pre-wrap'})
         ])
